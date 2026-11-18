@@ -198,7 +198,7 @@ impl Game {
         }
         if e.reset {
             let i = self.active;
-            self.vehicles[i].reset();
+            self.vehicles[i].reset(&self.city);
             let name = self.vehicles[i].name;
             self.notify(&format!("Đã hồi phục {name}"), 2.0);
         }

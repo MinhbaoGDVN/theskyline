@@ -101,14 +101,32 @@ impl Vehicle {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.pos.y = 0.0;
+    /// Hồi phục: đưa xe ra vị trí trống gần nhất (không có nhà nào trên cột đứng)
+    pub fn reset(&mut self, city: &City) {
         self.pitch = 0.0;
         self.roll = 0.0;
         self.speed = 0.0;
         self.kmh = 0.0;
         self.throttle = 0.0;
         self.broken = false;
+
+        let r = if self.kind == Kind::Plane { 2.0 } else { tuning(self.kind).radius };
+        let origin = self.pos;
+        'search: for ring in 0..60 {
+            let d = ring as f32 * 4.0;
+            let steps = (8 * ring).max(1);
+            for s in 0..steps {
+                let a = s as f32 * TAU / steps as f32;
+                let p = vec2(origin.x + a.cos() * d, origin.z + a.sin() * d);
+                if !city.hit(p, r, 0.0) {
+                    self.pos.x = p.x;
+                    self.pos.z = p.y;
+                    break 'search;
+                }
+            }
+        }
+        // Máy bay giữ độ cao (không thấp hơn 5 m), xe mặt đất đặt trên mặt đất
+        self.pos.y = if self.kind == Kind::Plane { origin.y.max(5.0) } else { 0.0 };
     }
 
     pub fn transform(&self) -> Mat4 {
