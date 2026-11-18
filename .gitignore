@@ -1,0 +1,11 @@
+# Build của Rust
+/target/
+
+# Font lấy từ Windows, không đưa lên git
+/assets/fonts/
+
+# Editor và hệ điều hành
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

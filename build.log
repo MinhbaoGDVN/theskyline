@@ -1,0 +1,15 @@
+   Compiling bevy_pbr v0.15.3
+   Compiling bevy_text v0.15.3
+   Compiling bevy_animation v0.15.3
+   Compiling bevy_scene v0.15.3
+   Compiling approx v0.5.1
+   Compiling bevy_gizmos_macros v0.15.3
+   Compiling bevy_state_macros v0.15.3
+   Compiling base64 v0.22.1
+   Compiling percent-encoding v2.3.2
+   Compiling bevy_gltf v0.15.3
+   Compiling bevy_state v0.15.3
+error: failed to build archive at `D:\rust\target\release\build\bevy_animation/e9c9de3e5ab09f3f\out\libbevy_animation-e9c9de3e5ab09f3f.rlib`: failed to map object file D:\rust\target\release\build\bevy_animation/e9c9de3e5ab09f3f\out\rustci7ZMzo\lib.rmeta: The paging file is too small for this operation to complete. (os error 1455)
+
+error: could not compile `bevy_animation` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

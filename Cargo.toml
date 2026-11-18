@@ -1,0 +1,13 @@
+[package]
+name = "theskyline"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+macroquad = "0.4"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
