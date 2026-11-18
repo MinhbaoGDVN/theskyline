@@ -3,6 +3,7 @@ mod city;
 mod combat;
 #[path = ".config"]
 mod config;
+mod discord;
 mod game;
 mod hud;
 mod input;
@@ -44,6 +45,7 @@ async fn main() {
     }
 
     let mut game = Game::new(Models::load(), font);
+    let mut rpc = discord::Rpc::start();
     let mut acc = 0.0f32;
     loop {
         acc += get_frame_time().min(MAX_FRAME);
@@ -53,6 +55,8 @@ async fn main() {
             acc -= STEP;
         }
         game.draw();
+        let (details, state) = game.status();
+        rpc.tick(details, state);
         next_frame().await;
     }
 }

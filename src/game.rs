@@ -336,6 +336,11 @@ impl Game {
         lines
     }
 
+    /// Thông tin hiện trên Discord Rich Presence
+    pub fn status(&self) -> (String, String) {
+        let v = &self.vehicles[self.active];
+        (format!("Đang lái {}", v.name), format!("Tốc độ {:.0} km/h", v.kmh.abs()))
+    }
     fn draw_hud(&self) {
         let font = self.font.as_ref();
         let v = &self.vehicles[self.active];

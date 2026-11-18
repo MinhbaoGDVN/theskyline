@@ -4,6 +4,7 @@ version = "0.3.0"
 edition = "2021"
 
 [dependencies]
+discord-rich-presence = "0.2"
 macroquad = "0.4"
 
 [profile.dev]
