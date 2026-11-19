@@ -1,11 +1,15 @@
 use macroquad::prelude::*;
 
-use crate::obj::{load_obj, ObjPart};
+use crate::obj::{parse_obj, ObjPart};
 use crate::vehicle::Kind;
 
-const MODEL_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models");
+const MTL: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/palette.mtl"));
+const CAR: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/car.obj"));
+const BIKE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/bike.obj"));
+const PLANE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/plane.obj"));
+const TANK: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/tank.obj"));
 
-/// Một model OBJ kèm khung bao quanh (dùng cho bóng đổ)
+/// Một model OBJ kèm khung bao (dùng cho bóng đổ)
 pub struct Model {
     pub parts: Vec<ObjPart>,
     mn: Vec3,
@@ -13,9 +17,8 @@ pub struct Model {
 }
 
 impl Model {
-    fn load(name: &str) -> Self {
-        let path = format!("{MODEL_DIR}/{name}.obj");
-        let parts = load_obj(&path).unwrap_or_else(|e| panic!("Không đọc được {path}: {e}"));
+    fn load(obj: &str) -> Self {
+        let parts = parse_obj(obj, MTL);
         let mut mn = Vec3::splat(f32::MAX);
         let mut mx = Vec3::splat(f32::MIN);
         for p in &parts {
@@ -42,10 +45,10 @@ pub struct Models {
 impl Models {
     pub fn load() -> Self {
         Self {
-            car: Model::load("car"),
-            bike: Model::load("bike"),
-            plane: Model::load("plane"),
-            tank: Model::load("tank"),
+            car: Model::load(CAR),
+            bike: Model::load(BIKE),
+            plane: Model::load(PLANE),
+            tank: Model::load(TANK),
         }
     }
 

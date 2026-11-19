@@ -302,13 +302,16 @@ impl Vehicle {
 
 pub fn default_fleet() -> Vec<Vehicle> {
     vec![
+        // Ô tô: trung tâm thành phố
         Vehicle::new(Kind::Car, vec3(4.0, 0.0, 20.0), 0.0),
-        Vehicle::new(Kind::Bike, vec3(-4.0, 0.0, -20.0), 0.0),
-        Vehicle::new(Kind::Plane, vec3(-600.0, 0.0, 100.0), FRAC_PI_2),
-        Vehicle::new(Kind::Tank, vec3(600.0, 0.0, 0.0), 0.0),
+        // Xe máy: bãi xe phía nam
+        Vehicle::new(Kind::Bike, vec3(0.0, 0.0, -650.0), 0.0),
+        // Máy bay: sân bay phía tây, mũi hướng đông (vào thành phố)
+        Vehicle::new(Kind::Plane, vec3(-700.0, 0.0, 0.0), FRAC_PI_2),
+        // Xe tăng: bãi tăng phía đông, mũi hướng tây (vào thành phố)
+        Vehicle::new(Kind::Tank, vec3(650.0, 0.0, 0.0), -FRAC_PI_2),
     ]
 }
-
 #[allow(dead_code)]
 pub fn random_unused() -> f32 {
     rnd(0.0, 1.0)

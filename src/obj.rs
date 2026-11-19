@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
 use macroquad::prelude::Vec3;
 
-/// Một bộ phận của model (mỗi `o` trong OBJ). Đỉnh không dùng chỉ số, viết theo từng tam giác.
+/// Một bộ phận của model. Đỉnh không dùng chỉ số, viết theo từng tam giác.
 pub struct ObjPart {
     pub color: [f32; 3],
     pub pos: Vec<Vec3>,
@@ -17,12 +15,10 @@ struct Current {
     tris: Vec<[Vec3; 3]>,
 }
 
-pub fn load_obj(path: &str) -> Result<Vec<ObjPart>, String> {
-    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let dir = Path::new(path).parent().unwrap_or(Path::new("."));
-
+/// Đọc model OBJ từ chuỗi; màu lấy từ bảng MTL (chuỗi)
+pub fn parse_obj(text: &str, mtl_text: &str) -> Vec<ObjPart> {
+    let mtl = load_mtl(mtl_text);
     let mut verts: Vec<Vec3> = Vec::new();
-    let mut mtl: HashMap<String, [f32; 3]> = HashMap::new();
     let mut parts = Vec::new();
     let mut cur = Current {
         color: [0.8, 0.8, 0.8],
@@ -48,7 +44,8 @@ pub fn load_obj(path: &str) -> Result<Vec<ObjPart>, String> {
                     })
                     .collect();
                 for k in 1..idx.len().saturating_sub(1) {
-                    cur.tris.push([verts[idx[0]], verts[idx[k]], verts[idx[k + 1]]]);
+                    cur.tris
+                        .push([verts[idx[0]], verts[idx[k]], verts[idx[k + 1]]]);
                 }
             }
             Some("o") | Some("g") => flush(&mut cur, &mut parts),
@@ -57,16 +54,11 @@ pub fn load_obj(path: &str) -> Result<Vec<ObjPart>, String> {
                     cur.color = *mtl.get(name).unwrap_or(&[0.8, 0.8, 0.8]);
                 }
             }
-            Some("mtllib") => {
-                if let Some(f) = it.next() {
-                    mtl = load_mtl(&dir.join(f));
-                }
-            }
             _ => {}
         }
     }
     flush(&mut cur, &mut parts);
-    Ok(parts)
+    parts
 }
 
 fn flush(cur: &mut Current, parts: &mut Vec<ObjPart>) {
@@ -97,11 +89,8 @@ fn flush(cur: &mut Current, parts: &mut Vec<ObjPart>) {
     cur.tris.clear();
 }
 
-fn load_mtl(path: &Path) -> HashMap<String, [f32; 3]> {
+fn load_mtl(text: &str) -> HashMap<String, [f32; 3]> {
     let mut map = HashMap::new();
-    let Ok(text) = fs::read_to_string(path) else {
-        return map;
-    };
     let mut current: Option<String> = None;
     for line in text.lines() {
         let mut it = line.split_whitespace();

@@ -21,7 +21,6 @@ use macroquad::prelude::*;
 use game::Game;
 use models::Models;
 
-const FONT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/fonts/ui.ttf");
 /// Bước logic cố định: 60 lần mỗi giây, không phụ thuộc FPS
 const STEP: f32 = 1.0 / 60.0;
 /// Giới hạn thời gian một frame, tránh chạy quá nhiều bước khi máy quá chậm
@@ -41,7 +40,7 @@ fn window_conf() -> Conf {
 async fn main() {
     macroquad::rand::srand(get_time() as u64);
 
-    let font = load_ttf_font(FONT).await.ok();
+    let font = load_ttf_font_from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/fonts/ui.ttf"))).ok();
     if font.is_none() {
         eprintln!("Không nạp được assets/fonts/ui.ttf, dùng font mặc định (không có dấu tiếng Việt)");
     }
