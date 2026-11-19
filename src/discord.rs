@@ -50,7 +50,7 @@ impl Rpc {
         let act = activity::Activity::new()
             .details(&details)
             .state(&state)
-            .assets(activity::Assets::new().large_text("The Skyline"))
+            .assets(activity::Assets::new().large_image("theskyline").large_text("The Skyline"))
             .timestamps(activity::Timestamps::new().start(self.start));
         let failed = match self.client.as_mut() {
             Some(c) => c.set_activity(act).is_err(),

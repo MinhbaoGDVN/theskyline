@@ -6,6 +6,7 @@ mod config;
 mod discord;
 mod game;
 mod hud;
+mod icon;
 mod input;
 mod minimap;
 mod models;
@@ -31,6 +32,7 @@ fn window_conf() -> Conf {
         window_title: "The Skyline".to_owned(),
         window_width: 1280,
         window_height: 720,
+        icon: icon::window_icon(),
         ..Default::default()
     }
 }

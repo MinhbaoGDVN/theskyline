@@ -157,6 +157,7 @@ impl Game {
         }
 
         self.try_fire(&c);
+        self.npc_collide();
         blasts.extend(combat::step_shells(&mut self.shells, dt, &self.city));
 
         for n in &mut self.traffic {
@@ -204,6 +205,37 @@ impl Game {
         }
     }
 
+    /// Va chạm xe mặt đất với NPC: xe bật lại, NPC bị hất văng kèm hiệu ứng
+    fn npc_collide(&mut self) {
+        let active = self.active;
+        if self.vehicles[active].kind == Kind::Plane {
+            return;
+        }
+        let vpos = self.vehicles[active].pos;
+        const HIT_DIST: f32 = 3.6;
+        let mut hit: Option<(usize, Vec3, f32)> = None;
+        for (i, n) in self.traffic.iter().enumerate() {
+            let np = n.position();
+            let d = vec2(np.x - vpos.x, np.z - vpos.z);
+            let dist = d.length();
+            if dist < HIT_DIST {
+                hit = Some((i, np, dist));
+                break;
+            }
+        }
+        if let Some((i, np, dist)) = hit {
+            let d = vec2(np.x - vpos.x, np.z - vpos.z);
+            let dir = if dist > 1e-3 { d / dist } else { vec2(1.0, 0.0) };
+            let v = &mut self.vehicles[active];
+            // Đẩy xe ra khỏi NPC và bật ngược lại
+            v.pos.x -= dir.x * (HIT_DIST - dist);
+            v.pos.z -= dir.y * (HIT_DIST - dist);
+            v.kmh *= -0.25;
+            self.traffic.swap_remove(i);
+            combat::burst(&mut self.particles, np + vec3(0.0, 1.0, 0.0), 20, 10.0);
+            self.notify("Tông xe!", 1.0);
+        }
+    }
     fn try_fire(&mut self, c: &Controls) {
         let v = &mut self.vehicles[self.active];
         if v.kind != Kind::Tank || !c.fire || v.cool > 0.0 {

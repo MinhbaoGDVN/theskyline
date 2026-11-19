@@ -2,13 +2,15 @@
 name = "theskyline"
 version = "0.3.0"
 edition = "2021"
+build = "src/build.rs"
 
 [dependencies]
 discord-rich-presence = "0.2"
 macroquad = "0.4"
-
+image = { version = "0.25", default-features = false, features = ["png"] }
 [profile.dev]
 opt-level = 1
 
 [profile.release]
 opt-level = 3
+

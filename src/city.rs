@@ -79,13 +79,13 @@ fn building_verts(c: Vec3, s: Vec3, rgb: [f32; 3], dim: f32) -> Vec<Vertex> {
         let y = 3.0 + j as f32 * 4.0;
         for i in 0..nx {
             let x = c.x - hx + 2.0 + i as f32 * 4.0;
-            window(&mut v, vec3(x, y, c.z + hz + 0.03), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), is_lit(i, j, seed));
-            window(&mut v, vec3(x, y, c.z - hz - 0.03), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, -1.0), is_lit(i, j, seed + 1));
+            window(&mut v, vec3(x, y, c.z + hz + 0.12), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), is_lit(i, j, seed));
+            window(&mut v, vec3(x, y, c.z - hz - 0.12), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, -1.0), is_lit(i, j, seed + 1));
         }
         for k in 0..nz {
             let z = c.z - hz + 2.0 + k as f32 * 4.0;
-            window(&mut v, vec3(c.x + hx + 0.03, y, z), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), is_lit(k, j, seed + 2));
-            window(&mut v, vec3(c.x - hx - 0.03, y, z), vec3(0.0, 0.0, 1.0), vec3(-1.0, 0.0, 0.0), is_lit(k, j, seed + 3));
+            window(&mut v, vec3(c.x + hx + 0.12, y, z), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), is_lit(k, j, seed + 2));
+            window(&mut v, vec3(c.x - hx - 0.12, y, z), vec3(0.0, 0.0, 1.0), vec3(-1.0, 0.0, 0.0), is_lit(k, j, seed + 3));
         }
     }
     v

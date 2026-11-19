@@ -72,8 +72,8 @@ impl ChaseCam {
             up: vec3(0.0, 1.0, 0.0),
             target: self.look,
             fovy: 60.0 * PI / 180.0,
-            z_near: 1.0,
-            z_far: 4000.0,
+            z_near: 2.0,
+            z_far: 2200.0,
             ..Default::default()
         }
     }
