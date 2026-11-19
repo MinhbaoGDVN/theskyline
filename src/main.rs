@@ -6,6 +6,7 @@ mod config;
 mod discord;
 mod game;
 mod hud;
+mod map;
 mod icon;
 mod input;
 mod minimap;
@@ -15,6 +16,7 @@ mod render;
 mod shadow;
 mod traffic;
 mod vehicle;
+mod zones;
 
 use macroquad::prelude::*;
 

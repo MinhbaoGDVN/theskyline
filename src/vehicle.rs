@@ -101,7 +101,7 @@ impl Vehicle {
         }
     }
 
-    /// Hồi phục: đưa xe ra vị trí trống gần nhất (không có nhà nào trên cột đứng)
+    /// Hồi phục: đưa xe ra vị trí trống gần nhất và quay mũi ra xa công trình gần nhất
     pub fn reset(&mut self, city: &City) {
         self.pitch = 0.0;
         self.roll = 0.0;
@@ -125,6 +125,23 @@ impl Vehicle {
                 }
             }
         }
+
+        // Quay mũi ra xa công trình gần nhất trong vòng 80 m
+        let mut best: Option<(f32, Vec2)> = None;
+        for b in &city.buildings {
+            let c = (b.min + b.max) * 0.5;
+            let dist = vec2(self.pos.x - c.x, self.pos.z - c.y).length();
+            if dist < 80.0 && best.map_or(true, |(bd, _)| dist < bd) {
+                best = Some((dist, c));
+            }
+        }
+        if let Some((_, c)) = best {
+            let away = vec2(self.pos.x - c.x, self.pos.z - c.y);
+            if away.length() > 1e-3 {
+                self.heading = away.x.atan2(away.y);
+            }
+        }
+
         // Máy bay giữ độ cao (không thấp hơn 5 m), xe mặt đất đặt trên mặt đất
         self.pos.y = if self.kind == Kind::Plane { origin.y.max(5.0) } else { 0.0 };
     }

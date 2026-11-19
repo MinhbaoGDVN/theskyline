@@ -197,3 +197,101 @@ impl City {
         debris
     }
 }
+
+impl City {
+    /// Công trình tùy chỉnh có cửa sổ suốt chiều cao
+    pub fn add_custom(&mut self, c: Vec2, hw: f32, hd: f32, h: f32, rgb: [f32; 3], hp: f32) {
+        self.add_band(c, hw, hd, 0.0, h, rgb, hp, 0.0);
+    }
+
+    /// Khối trơn không cửa sổ
+    pub fn add_plain(&mut self, c: Vec2, hw: f32, hd: f32, h: f32, rgb: [f32; 3], hp: f32) {
+        self.add_band(c, hw, hd, 0.0, h, rgb, hp, f32::MAX);
+    }
+
+    /// Khối từ độ cao y0 đến y1. Cửa sổ chỉ vẽ ở các tầng có độ cao từ win_from trở lên.
+    pub fn add_band(
+        &mut self,
+        c: Vec2,
+        hw: f32,
+        hd: f32,
+        y0: f32,
+        y1: f32,
+        rgb: [f32; 3],
+        hp: f32,
+        win_from: f32,
+    ) {
+        let center = vec3(c.x, (y0 + y1) * 0.5, c.y);
+        let size = vec3(hw * 2.0, y1 - y0, hd * 2.0);
+        let min = c - vec2(hw, hd);
+        let max = c + vec2(hw, hd);
+        let mut shadow = Vec::new();
+        push_shadow(&mut shadow, box_corners(vec3(min.x, 0.0, min.y), vec3(max.x, y1, max.y)));
+        let mut v = Vec::new();
+        push_box(&mut v, center, size, rgb);
+        band_windows(&mut v, c, hw, hd, y0, y1, win_from);
+        self.buildings.push(Building {
+            min,
+            max,
+            top: y1,
+            rgb,
+            hp,
+            meshes: chunk_meshes(v),
+            shadow,
+            center,
+            size,
+        });
+    }
+
+    /// Khối với mesh tự cung cấp (dùng cho tường OBJ). Va chạm theo khung min-max.
+    pub fn add_verts(&mut self, min: Vec2, max: Vec2, top: f32, rgb: [f32; 3], hp: f32, verts: Vec<Vertex>) {
+        let center = vec3((min.x + max.x) * 0.5, top * 0.5, (min.y + max.y) * 0.5);
+        let size = vec3(max.x - min.x, top, max.y - min.y);
+        let mut shadow = Vec::new();
+        push_shadow(&mut shadow, box_corners(vec3(min.x, 0.0, min.y), vec3(max.x, top, max.y)));
+        self.buildings.push(Building {
+            min,
+            max,
+            top,
+            rgb,
+            hp,
+            meshes: chunk_meshes(verts),
+            shadow,
+            center,
+            size,
+        });
+    }
+
+    /// Xóa các công trình có tâm nằm trong ô vuông quanh c (nửa cạnh half)
+    pub fn clear_block(&mut self, c: Vec2, half: f32) {
+        self.buildings.retain(|b| {
+            let bc = (b.min + b.max) * 0.5;
+            (bc.x - c.x).abs() > half || (bc.y - c.y).abs() > half
+        });
+    }
+}
+
+/// Cửa sổ cho một khối, chỉ ở các tầng có độ cao >= win_from
+fn band_windows(out: &mut Vec<Vertex>, c: Vec2, hw: f32, hd: f32, y0: f32, y1: f32, win_from: f32) {
+    let seed = ((c.x * 7.0) as i32).wrapping_add((c.y * 13.0) as i32);
+    let nx = (((2.0 * hw - 2.0) / 4.0).floor() as i32 + 1).max(1);
+    let nz = (((2.0 * hd - 2.0) / 4.0).floor() as i32 + 1).max(1);
+    let mut y = y0 + 3.0;
+    let mut j: i32 = 0;
+    while y <= y1 - 2.0 {
+        if y >= win_from {
+            for i in 0..nx {
+                let x = c.x - hw + 2.0 + i as f32 * 4.0;
+                window(out, vec3(x, y, c.y + hd + 0.12), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), is_lit(i, j, seed));
+                window(out, vec3(x, y, c.y - hd - 0.12), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, -1.0), is_lit(i, j, seed + 1));
+            }
+            for k in 0..nz {
+                let z = c.y - hd + 2.0 + k as f32 * 4.0;
+                window(out, vec3(c.x + hw + 0.12, y, z), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), is_lit(k, j, seed + 2));
+                window(out, vec3(c.x - hw - 0.12, y, z), vec3(0.0, 0.0, 1.0), vec3(-1.0, 0.0, 0.0), is_lit(k, j, seed + 3));
+            }
+        }
+        y += 4.0;
+        j += 1;
+    }
+}

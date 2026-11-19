@@ -63,7 +63,12 @@ impl Game {
         let win_start = vehicles[0].pos;
         Self {
             models,
-            city: City::generate(),
+            city: {
+                let mut c = City::generate();
+                crate::zones::add_zones(&mut c);
+                crate::map::specials(&mut c);
+                c
+            },
             vehicles,
             active: 0,
             traffic: (0..TRAFFIC_COUNT).map(|_| NpcCar::random()).collect(),
