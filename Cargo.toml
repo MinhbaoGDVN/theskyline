@@ -6,7 +6,7 @@ build = "src/build.rs"
 
 [dependencies]
 discord-rich-presence = "0.2"
-macroquad = "0.4"
+macroquad = { version = "0.4", features = ["audio"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 [profile.dev]
 opt-level = 1

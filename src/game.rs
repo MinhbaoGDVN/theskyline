@@ -374,6 +374,10 @@ impl Game {
     }
 
     /// Thông tin hiện trên Discord Rich Presence
+    /// Dang dieu khien may bay (dung cho am thanh buong lai)
+    pub fn active_is_plane(&self) -> bool {
+        self.vehicles[self.active].kind == crate::vehicle::Kind::Plane
+    }
     pub fn status(&self) -> (String, String) {
         let v = &self.vehicles[self.active];
         (format!("Đang lái {}", v.name), format!("Tốc độ {:.0} km/h", v.kmh.abs()))

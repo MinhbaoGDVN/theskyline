@@ -78,3 +78,14 @@ pub fn read_edges() -> Edges {
     e.dev_toggle = shift && is_key_down(KeyCode::D) && is_key_pressed(KeyCode::F12);
     e
 }
+
+/// Cai dat: dao nguoc dieu khien len/xuong cua may bay
+pub static INVERT_PLANE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn invert_plane() -> bool {
+    INVERT_PLANE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_invert_plane(v: bool) {
+    INVERT_PLANE.store(v, std::sync::atomic::Ordering::Relaxed);
+}

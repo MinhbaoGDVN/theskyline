@@ -270,11 +270,12 @@ impl Vehicle {
 
         let steer = b(c.left) - b(c.right);
 
+        let (pitch_up, pitch_down) = if crate::input::invert_plane() { (c.down, c.up) } else { (c.up, c.down) };
         let mut pitch_t = 0.0;
-        if c.up {
+        if pitch_up {
             pitch_t = 0.4;
         }
-        if c.down {
+        if pitch_down {
             pitch_t = -0.4;
         }
         if on_ground && self.speed < 30.0 {
