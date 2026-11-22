@@ -164,6 +164,17 @@ impl City {
     }
 
     /// Điểm p (mặt phẳng xz), bán kính r, độ cao y có chạm tòa nhà không
+    /// Đỉnh cao nhất của các toà nhà bao quanh điểm p (bán kính r), hoặc None nếu không có toà nào
+    pub fn roof_top(&self, p: Vec2, r: f32) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        for b in &self.buildings {
+            if p.x + r > b.min.x && p.x - r < b.max.x && p.y + r > b.min.y && p.y - r < b.max.y {
+                best = Some(best.map_or(b.top, |t| t.max(b.top)));
+            }
+        }
+        best
+    }
+
     pub fn hit(&self, p: Vec2, r: f32, y: f32) -> bool {
         self.buildings.iter().any(|b| {
             y < b.top && p.x + r > b.min.x && p.x - r < b.max.x && p.y + r > b.min.y && p.y - r < b.max.y

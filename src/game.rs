@@ -9,7 +9,7 @@ use crate::input::{self, Controls, Edges};
 use crate::minimap;
 use crate::models::Models;
 use crate::render::{draw_verts, push_box, push_model};
-use crate::shadow::{box_corners, push_shadow};
+use crate::shadow::{box_corners, draw_shadows, push_shadow};
 use crate::traffic::NpcCar;
 use crate::vehicle::{default_fleet, Kind, Vehicle};
 
@@ -55,6 +55,7 @@ pub struct Game {
     straight_kmh: f32,
     path_kmh: f32,
     bumps_last: u32,
+    weather: crate::weather::Weather,
 }
 
 impl Game {
@@ -90,6 +91,7 @@ impl Game {
             bumps: 0,
             straight_kmh: 0.0,
             path_kmh: 0.0,
+            weather: crate::weather::Weather::new(),
             bumps_last: 0,
         }
     }
@@ -107,6 +109,7 @@ impl Game {
 
     /// Một bước logic cố định (dt luôn là 1/60 giây)
     pub fn update(&mut self, dt: f32) {
+        self.weather.update(dt);
         self.tick_count += 1;
         self.tick_timer += dt;
         if self.tick_timer >= 1.0 {
@@ -274,7 +277,7 @@ impl Game {
     }
 
     pub fn draw(&self) {
-        clear_background(Color::new(0.55, 0.8, 1.0, 1.0));
+        self.weather.draw_sky(&self.cam.camera());
         set_camera(&self.cam.camera());
 
         for m in &self.city.roads {
@@ -311,7 +314,7 @@ impl Game {
             let m = n.transform();
             push_shadow(&mut shadows, box_corners(cmn, cmx).map(|p| m.transform_point3(p)));
         }
-        draw_verts(shadows);
+        draw_shadows(shadows);
 
         // Nhà: chỉ gửi lên GPU khi nằm trong tầm nhìn
         for b in &self.city.buildings {
@@ -351,7 +354,9 @@ impl Game {
         draw_verts(verts);
 
         set_default_camera();
+        self.weather.draw_overlay();
         self.draw_hud();
+        self.weather.draw_notice(self.font.as_ref());
         minimap::draw(&self.city, &self.vehicles, self.active, &self.traffic);
     }
 
@@ -375,6 +380,14 @@ impl Game {
 
     /// Thông tin hiện trên Discord Rich Presence
     /// Dang dieu khien may bay (dung cho am thanh buong lai)
+    /// Chỉ ô tô và xe máy có còi
+    pub fn active_can_honk(&self) -> bool {
+        matches!(self.vehicles[self.active].kind, crate::vehicle::Kind::Car | crate::vehicle::Kind::Bike)
+    }
+    /// Chon phuong tien theo so (0-3), dung cho phim so
+    pub fn select_vehicle(&mut self, i: usize) {
+        self.edges.switch = Some(i);
+    }
     pub fn active_is_plane(&self) -> bool {
         self.vehicles[self.active].kind == crate::vehicle::Kind::Plane
     }

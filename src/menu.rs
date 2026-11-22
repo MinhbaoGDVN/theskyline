@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use macroquad::prelude::*;
 
 use crate::input;
+use crate::weather;
 
 /// Man hinh dang hien thi
 pub enum Screen {
@@ -36,6 +37,7 @@ pub struct Menu {
 }
 
 const MAIN_ITEMS: [&str; 3] = ["Chơi", "Cài đặt", "Thoát"];
+const SET_ITEMS: usize = 4;
 const BTN_W: f32 = 420.0;
 const BTN_H: f32 = 76.0;
 const BTN_GAP: f32 = 104.0;
@@ -119,20 +121,23 @@ impl Menu {
         let h = screen_height();
         let x = w * COL_X;
         let y0 = h * COL_Y;
-        draw_panel(x - 28.0, y0 - 28.0, SET_W + 56.0, BTN_GAP * 2.0 + BTN_H + 56.0);
+        draw_panel(x - 28.0, y0 - 28.0, SET_W + 56.0, BTN_GAP * (SET_ITEMS as f32 - 1.0) + BTN_H + 56.0);
 
         let invert = input::invert_plane();
         let vol = master_volume();
+        let notice = weather::show_notice();
         let labels = [
             format!("Đảo ngược điều khiển máy bay: {}", if invert { "BẬT" } else { "TẮT" }),
             format!("Âm lượng: {}%", (vol * 100.0).round() as i32),
+            format!("Thông báo thời tiết: {}", if notice { "BẬT" } else { "TẮT" }),
             "Quay lại".to_string(),
         ];
         let (mx, my) = mouse_position();
-        let mut toggle = false;
+        let mut toggle_invert = false;
+        let mut toggle_notice = false;
         let mut back = false;
-        for i in 0..3 {
-            let bw = if i == 2 { BTN_W } else { SET_W };
+        for i in 0..SET_ITEMS {
+            let bw = if i == SET_ITEMS - 1 { BTN_W } else { SET_W };
             let by = y0 + i as f32 * BTN_GAP;
             let hover = inside(mx, my, x, by, bw, BTN_H);
             if hover {
@@ -163,21 +168,24 @@ impl Menu {
                     }
                 }
             } else if clicked {
-                if i == 0 {
-                    toggle = true;
-                } else {
-                    back = true;
+                match i {
+                    0 => toggle_invert = true,
+                    2 => toggle_notice = true,
+                    _ => back = true,
                 }
             }
         }
         if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
-            self.sel = (self.sel + 2) % 3;
+            self.sel = (self.sel + SET_ITEMS - 1) % SET_ITEMS;
         }
         if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
-            self.sel = (self.sel + 1) % 3;
+            self.sel = (self.sel + 1) % SET_ITEMS;
         }
-        if toggle {
+        if toggle_invert {
             input::set_invert_plane(!invert);
+        }
+        if toggle_notice {
+            weather::set_show_notice(!notice);
         }
         if back || is_key_pressed(KeyCode::Escape) {
             self.screen = Screen::Menu;
@@ -217,7 +225,7 @@ fn draw_button(font: Option<&Font>, label: &str, x: f32, y: f32, w: f32, selecte
         draw_triangle(vec2(x + 22.0, cy - 12.0), vec2(x + 22.0, cy + 12.0), vec2(x + 40.0, cy), gold());
         draw_triangle(vec2(x + w - 22.0, cy - 12.0), vec2(x + w - 22.0, cy + 12.0), vec2(x + w - 40.0, cy), gold());
     }
-    let size: u16 = 34;
+    let size: u16 = 30;
     let d = measure_text(label, font, size, 1.0);
     let tx = x + (w - d.width) / 2.0;
     let ty = y + h / 2.0 + size as f32 * 0.35 - 6.0;

@@ -258,7 +258,8 @@ impl Vehicle {
         if self.broken {
             return false;
         }
-        let on_ground = self.pos.y <= 0.01;
+        let support_now = city.roof_top(self.pos.xz(), 2.0).unwrap_or(0.0).max(0.0);
+        let on_ground = self.pos.y <= support_now + 0.01;
 
         if c.thr_up {
             self.throttle = (self.throttle + 0.5 * dt).min(1.0);
@@ -298,16 +299,21 @@ impl Vehicle {
             + vec3(self.heading.sin() * cp, 0.0, self.heading.cos() * cp) * self.speed * dt;
         next.y = self.pos.y + vy * dt;
 
-        if next.y <= 0.0 {
-            if self.pos.y > 0.0 && vy < -8.0 {
+        // Đâm vào thân toà nhà: đang ở dưới nóc mà bay vào trong toà
+        let roof_next = city.roof_top(next.xz(), 2.0).unwrap_or(0.0);
+        if roof_next > 0.0 && next.y < roof_next - 0.5 && self.pos.y < roof_next - 0.5 {
+            self.crash();
+            return true;
+        }
+        // Mặt đỡ: mặt đất hoặc nóc toà nhà bên dưới
+        let support_next = roof_next.max(0.0);
+        if next.y <= support_next {
+            // Va cham manh: roi nhanh, hoac chuc mui xuong khi dang chay nhanh
+            if self.pos.y > support_now + 0.5 && (vy < -6.0 || (self.pitch < -0.15 && self.speed > 15.0)) {
                 self.crash();
                 return true;
             }
-            next.y = 0.0;
-        }
-        if city.hit(next.xz(), 2.0, next.y) {
-            self.crash();
-            return true;
+            next.y = support_next;
         }
 
         next.x = next.x.clamp(-WORLD_LIMIT, WORLD_LIMIT);

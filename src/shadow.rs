@@ -1,6 +1,8 @@
+use macroquad::material::{gl_use_default_material, gl_use_material, load_material, Material, MaterialParams};
+use macroquad::miniquad::{BlendFactor, BlendState, BlendValue, Comparison, Equation, PipelineParams, ShaderSource};
 use macroquad::prelude::*;
 
-use crate::render::light_dir;
+use crate::render::{draw_verts, light_dir};
 
 /// Độ cao của mặt bóng, cao hơn vỉa hè và vạch kẻ đường
 pub const SHADOW_Y: f32 = 0.3;
@@ -75,4 +77,52 @@ pub fn push_shadow(out: &mut Vec<Vertex>, corners: [Vec3; 8]) {
             out.push(Vertex::new(p.x, SHADOW_Y, p.y, 0.0, 0.0, c));
         }
     }
+}
+
+const SHADOW_VS: &str = "#version 100
+attribute vec3 position;
+attribute vec4 color0;
+uniform mat4 Model;
+uniform mat4 Projection;
+varying lowp vec4 color;
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1.0);
+    color = color0 / 255.0;
+}
+";
+
+const SHADOW_FS: &str = "#version 100
+varying lowp vec4 color;
+void main() {
+    gl_FragColor = color;
+}
+";
+
+thread_local! {
+    /// Material cho bóng: không ghi depth, nên các bóng chồng lên nhau không bị z-fighting,
+    /// alpha cộng dồn làm vùng chồng đậm hơn. Vẫn bị vật thể che đúng cách (depth test).
+    static SHADOW_MAT: Material = load_material(
+        ShaderSource::Glsl { vertex: SHADOW_VS, fragment: SHADOW_FS },
+        MaterialParams {
+            pipeline_params: PipelineParams {
+                depth_write: false,
+                depth_test: Comparison::LessOrEqual,
+                color_blend: Some(BlendState::new(
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .expect("shadow material");
+}
+
+/// Vẽ toàn bộ bóng đổ trong một lượt với material không ghi depth
+pub fn draw_shadows(verts: Vec<Vertex>) {
+    SHADOW_MAT.with(|m| gl_use_material(m));
+    draw_verts(verts);
+    gl_use_default_material();
 }

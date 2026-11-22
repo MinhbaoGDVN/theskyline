@@ -19,6 +19,8 @@ mod house;
 mod shadow;
 mod traffic;
 mod vehicle;
+mod fade;
+mod weather;
 mod zones;
 
 use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, stop_sound, PlaySoundParams};
@@ -68,11 +70,13 @@ async fn main() {
     let mut game = Game::new(Models::load(), font);
     let mut rpc = discord::Rpc::start();
     let mut menu = Menu::new();
+    let mut fade = fade::Fade::new();
+    let logo_tex = Texture2D::from_file_with_format(include_bytes!("../assets/images/menu-bg.png"), None);
     let mut acc = 0.0f32;
     loop {
         match menu.screen {
             Screen::Playing => {
-                if is_key_pressed(KeyCode::H) {
+                if is_key_pressed(KeyCode::H) && game.active_can_honk() {
                     play_sound_once(&honk);
                 }
                 let want = game.active_is_plane();
@@ -91,8 +95,21 @@ async fn main() {
                     game.update(STEP);
                     acc -= STEP;
                 }
+                for (n, k) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4].iter().enumerate() {
+                    if is_key_pressed(*k) {
+                        eprintln!("Nhan phim {}", n + 1);
+                    }
+                }
+                while let Some(c) = get_char_pressed() {
+                    if let Some(d) = c.to_digit(10) {
+                        if (1..=4).contains(&d) {
+                            game.select_vehicle((d - 1) as usize);
+                            eprintln!("Chon xe {}", d);
+                        }
+                    }
+                }
                 if is_key_pressed(KeyCode::Escape) {
-                    menu.screen = Screen::Menu;
+                    fade.request(Screen::Menu);
                     acc = 0.0;
                 }
                 game.draw();
@@ -106,13 +123,15 @@ async fn main() {
                 }
                 acc = 0.0;
                 match menu.frame(menu_font.as_ref()) {
-                    MenuResult::Play => menu.screen = Screen::Playing,
+                    MenuResult::Play => fade.request(Screen::Playing),
                     MenuResult::Quit => break,
                     MenuResult::None => {}
                 }
                 rpc.tick("Đang ở menu".to_string(), "The Skyline".to_string());
             }
         }
+        fade.update(get_frame_time(), &mut menu);
+        fade.draw(&logo_tex);
         next_frame().await;
     }
 }
