@@ -51,6 +51,8 @@ pub fn parse_obj(text: &str, mtl_text: &str) -> Vec<ObjPart> {
             Some("o") | Some("g") => flush(&mut cur, &mut parts),
             Some("usemtl") => {
                 if let Some(name) = it.next() {
+                    // Ket thuc mot mang mau truoc khi doi mau, de cac mat khong bi nhuom sai mau
+                    flush(&mut cur, &mut parts);
                     cur.color = *mtl.get(name).unwrap_or(&[0.8, 0.8, 0.8]);
                 }
             }

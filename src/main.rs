@@ -14,6 +14,8 @@ mod minimap;
 mod models;
 mod obj;
 mod render;
+mod road;
+mod house;
 mod shadow;
 mod traffic;
 mod vehicle;

@@ -1,0 +1,14 @@
+# road.obj - doan duong, do dai theo z (-0.5..0.5), chieu rong theo x (-0.5..0.5)
+# Duoc scale theo doan duong trong layout.json
+usemtl asphalt
+v -0.5 0.06 -0.5
+v 0.5 0.06 -0.5
+v 0.5 0.06 0.5
+v -0.5 0.06 0.5
+f 4 3 2 1
+usemtl line
+v -0.03 0.10 -0.5
+v 0.03 0.10 -0.5
+v 0.03 0.10 0.5
+v -0.03 0.10 0.5
+f 8 7 6 5

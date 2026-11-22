@@ -62,10 +62,9 @@ fn building_verts(c: Vec3, s: Vec3, rgb: [f32; 3], dim: f32) -> Vec<Vertex> {
     let (hx, hz) = (s.x * 0.5, s.z * 0.5);
 
     push_box(&mut v, vec3(c.x, 0.7, c.z), vec3(s.x + 0.6, 1.4, s.z + 0.6), [0.35, 0.35, 0.37]);
-    push_box(&mut v, c, s, [rgb[0] * dim, rgb[1] * dim, rgb[2] * dim]);
+    crate::house::body(&mut v, c, s, [rgb[0] * dim, rgb[1] * dim, rgb[2] * dim]);
 
     let roof_y = c.y + s.y * 0.5 + 0.4;
-    push_box(&mut v, vec3(c.x, roof_y, c.z), vec3(s.x + 1.0, 0.8, s.z + 1.0), [0.28, 0.28, 0.3]);
     if s.y > 40.0 {
         push_box(&mut v, vec3(c.x, roof_y + 1.5, c.z), vec3(s.x * 0.4, 3.0, s.z * 0.4), [0.6, 0.62, 0.66]);
     }
@@ -124,21 +123,15 @@ impl City {
     pub fn generate() -> Self {
         let mut batch = Batch::new();
         let grass = [0.42, 0.61, 0.29];
-        let asphalt = [0.2, 0.2, 0.22];
         let sidewalk = [0.6, 0.6, 0.6];
         let park = [0.25, 0.56, 0.25];
-        let line = [1.0, 0.82, 0.25];
 
         batch.push_box(vec3(0.0, -0.05, 0.0), vec3(4000.0, 0.1, 4000.0), grass);
 
         let len = 2.0 * 480.0;
-        for k in -GRID_N..=GRID_N {
-            let p = k as f32 * BLOCK;
-            batch.push_box(vec3(p, 0.03, 0.0), vec3(ROAD, 0.06, len), asphalt);
-            batch.push_box(vec3(p, 0.1, 0.0), vec3(0.6, 0.02, len), line);
-            batch.push_box(vec3(0.0, 0.03, p), vec3(len, 0.06, ROAD), asphalt);
-            batch.push_box(vec3(0.0, 0.1, p), vec3(len, 0.02, 0.6), line);
-        }
+        let mut road_verts = Vec::new();
+        let lines: Vec<f32> = (-GRID_N..=GRID_N).map(|k| k as f32 * BLOCK).collect();
+        crate::road::grid_roads(&mut road_verts, &lines, len, ROAD);
 
         let mut buildings = Vec::new();
         let size = BLOCK - ROAD;
@@ -162,8 +155,10 @@ impl City {
             }
         }
 
+        let mut roads = batch.finish();
+        roads.extend(chunk_meshes(road_verts));
         City {
-            roads: batch.finish(),
+            roads,
             buildings,
         }
     }

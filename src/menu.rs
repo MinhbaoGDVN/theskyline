@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use macroquad::prelude::*;
 
 use crate::input;
@@ -16,6 +18,17 @@ pub enum MenuResult {
     Quit,
 }
 
+/// Am luong tong (0.0 - 1.0), luu duoi dang bit cua f32; mac dinh 0.7
+static MASTER_VOL: AtomicU32 = AtomicU32::new(0x3F33_3333);
+
+pub fn master_volume() -> f32 {
+    f32::from_bits(MASTER_VOL.load(Ordering::Relaxed))
+}
+
+pub fn set_master_volume(v: f32) {
+    MASTER_VOL.store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+}
+
 pub struct Menu {
     pub screen: Screen,
     sel: usize,
@@ -26,6 +39,7 @@ const MAIN_ITEMS: [&str; 3] = ["Chơi", "Cài đặt", "Thoát"];
 const BTN_W: f32 = 420.0;
 const BTN_H: f32 = 76.0;
 const BTN_GAP: f32 = 104.0;
+const SET_W: f32 = 620.0;
 /// Vi tri cum nut, theo ti le man hinh
 const COL_X: f32 = 0.07;
 const COL_Y: f32 = 0.42;
@@ -105,18 +119,20 @@ impl Menu {
         let h = screen_height();
         let x = w * COL_X;
         let y0 = h * COL_Y;
-        draw_panel(x - 28.0, y0 - 28.0, 620.0 + 56.0, BTN_GAP + BTN_H + 56.0);
+        draw_panel(x - 28.0, y0 - 28.0, SET_W + 56.0, BTN_GAP * 2.0 + BTN_H + 56.0);
 
         let invert = input::invert_plane();
+        let vol = master_volume();
         let labels = [
             format!("Đảo ngược điều khiển máy bay: {}", if invert { "BẬT" } else { "TẮT" }),
+            format!("Âm lượng: {}%", (vol * 100.0).round() as i32),
             "Quay lại".to_string(),
         ];
         let (mx, my) = mouse_position();
         let mut toggle = false;
         let mut back = false;
-        for i in 0..2 {
-            let bw = if i == 0 { 620.0 } else { BTN_W };
+        for i in 0..3 {
+            let bw = if i == 2 { BTN_W } else { SET_W };
             let by = y0 + i as f32 * BTN_GAP;
             let hover = inside(mx, my, x, by, bw, BTN_H);
             if hover {
@@ -127,7 +143,26 @@ impl Menu {
                 || (selected && is_key_pressed(KeyCode::Enter));
             let label: &str = &labels[i];
             draw_button(font, label, x, by, bw, selected);
-            if clicked {
+
+            if i == 1 {
+                // Thanh am luong nam trong nut
+                let bx = x + 16.0;
+                let bwid = bw - 32.0;
+                let byb = by + BTN_H - 16.0;
+                draw_rectangle(bx, byb, bwid, 8.0, Color::new(0.0, 0.0, 0.0, 0.55));
+                draw_rectangle(bx, byb, bwid * vol, 8.0, gold());
+                if hover && is_mouse_button_down(MouseButton::Left) {
+                    set_master_volume((mx - bx) / bwid);
+                }
+                if selected {
+                    if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
+                        set_master_volume(vol - 0.05);
+                    }
+                    if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D) {
+                        set_master_volume(vol + 0.05);
+                    }
+                }
+            } else if clicked {
                 if i == 0 {
                     toggle = true;
                 } else {
@@ -135,8 +170,11 @@ impl Menu {
                 }
             }
         }
-        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) || is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
-            self.sel = 1 - self.sel;
+        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
+            self.sel = (self.sel + 2) % 3;
+        }
+        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
+            self.sel = (self.sel + 1) % 3;
         }
         if toggle {
             input::set_invert_plane(!invert);
@@ -182,7 +220,7 @@ fn draw_button(font: Option<&Font>, label: &str, x: f32, y: f32, w: f32, selecte
     let size: u16 = 34;
     let d = measure_text(label, font, size, 1.0);
     let tx = x + (w - d.width) / 2.0;
-    let ty = y + h / 2.0 + size as f32 * 0.35;
+    let ty = y + h / 2.0 + size as f32 * 0.35 - 6.0;
     draw_text_ex(
         label,
         tx + 2.0,
