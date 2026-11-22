@@ -1,5 +1,7 @@
 use macroquad::material::{gl_use_default_material, gl_use_material, load_material, Material, MaterialParams};
 use macroquad::miniquad::{BlendFactor, BlendState, BlendValue, Comparison, Equation, PipelineParams, ShaderSource};
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use macroquad::prelude::*;
 
 use crate::render::{draw_verts, light_dir};
@@ -121,7 +123,22 @@ thread_local! {
 }
 
 /// Vẽ toàn bộ bóng đổ trong một lượt với material không ghi depth
-pub fn draw_shadows(verts: Vec<Vertex>) {
+/// Độ đậm của bóng (0 = không có bóng), do độ sáng ban ngày quyết định
+static SHADOW_STRENGTH: AtomicU32 = AtomicU32::new(0x3F80_0000); // 1.0
+
+pub fn set_shadow_strength(v: f32) {
+    SHADOW_STRENGTH.store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+}
+
+/// Vẽ toàn bộ bóng đổ trong một lượt với material không ghi depth
+pub fn draw_shadows(mut verts: Vec<Vertex>) {
+    let k = f32::from_bits(SHADOW_STRENGTH.load(Ordering::Relaxed));
+    if k <= 0.01 {
+        return;
+    }
+    for v in &mut verts {
+        v.color[3] = ((v.color[3] as f32) * k) as u8;
+    }
     SHADOW_MAT.with(|m| gl_use_material(m));
     draw_verts(verts);
     gl_use_default_material();

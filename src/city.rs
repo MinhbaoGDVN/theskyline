@@ -185,6 +185,9 @@ impl City {
     pub fn damage(&mut self, p: Vec2) -> Vec<(Vec3, f32)> {
         let mut dead = Vec::new();
         for (i, b) in self.buildings.iter_mut().enumerate() {
+            if b.hp >= 1.0e5 {
+                continue;
+            }
             let d = p.distance(p.clamp(b.min, b.max));
             if d < BLAST_RADIUS {
                 b.hp -= DIRECT_DAMAGE * (1.0 - d / BLAST_RADIUS);

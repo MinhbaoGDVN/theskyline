@@ -122,6 +122,7 @@ impl Weather {
     pub fn draw_sky(&self, cam: &Camera3D) {
         let e = self.elevation();
         let d = (e * 2.5 + 0.5).clamp(0.0, 1.0);
+        crate::shadow::set_shadow_strength((d * 1.5).min(1.0));
 
         let night = vec3(0.04, 0.06, 0.14);
         let day = vec3(0.55, 0.8, 1.0);

@@ -140,7 +140,8 @@ impl Game {
         let before = self.vehicles[active].pos;
         let crashed = self.vehicles[active].update(dt, &c, &self.city);
         if crashed {
-            blasts.push(self.vehicles[active].pos + vec3(0.0, 1.0, 0.0));
+            let crash_pos = self.vehicles[active].pos + vec3(0.0, 1.0, 0.0);
+            combat::burst(&mut self.particles, crash_pos, 30, 18.0);
             self.notify("Máy bay rơi! Nhấn R để hồi phục", 3.0);
         }
 

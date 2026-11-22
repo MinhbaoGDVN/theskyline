@@ -23,7 +23,7 @@ mod fade;
 mod weather;
 mod zones;
 
-use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, stop_sound, PlaySoundParams};
+use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, set_sound_volume, stop_sound, PlaySoundParams};
 use macroquad::prelude::*;
 
 use game::Game;
@@ -65,13 +65,15 @@ async fn main() {
     let ambient = load_sound_from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sounds/ambient.ogg")))
         .await
         .expect("ambient.ogg");
+    let music = load_sound_from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sounds/music.ogg"))).await.expect("music.ogg");
+    play_sound(&music, PlaySoundParams { looped: true, volume: 0.5 });
     let mut ambient_on = false;
 
     let mut game = Game::new(Models::load(), font);
     let mut rpc = discord::Rpc::start();
     let mut menu = Menu::new();
     let mut fade = fade::Fade::new();
-    let logo_tex = Texture2D::from_file_with_format(include_bytes!("../assets/images/menu-bg.png"), None);
+    let logo_tex = Texture2D::from_file_with_format(include_bytes!("../assets/icons/icon.png"), None);
     let mut acc = 0.0f32;
     loop {
         match menu.screen {
@@ -130,8 +132,9 @@ async fn main() {
                 rpc.tick("Đang ở menu".to_string(), "The Skyline".to_string());
             }
         }
+        set_sound_volume(&music, menu::music_volume() * menu::master_volume());
         fade.update(get_frame_time(), &mut menu);
-        fade.draw(&logo_tex);
+        fade.draw(&logo_tex, menu_font.as_ref());
         next_frame().await;
     }
 }
