@@ -14,7 +14,7 @@ const STONE: [f32; 3] = [0.82, 0.78, 0.65];
 const DARK: [f32; 3] = [0.15, 0.15, 0.17];
 
 /// Tâm ô (i, j) trong lưới thành phố
-fn block(i: i32, j: i32) -> Vec2 {
+pub fn block(i: i32, j: i32) -> Vec2 {
     vec2((i as f32 + 0.5) * 80.0, (j as f32 + 0.5) * 80.0)
 }
 

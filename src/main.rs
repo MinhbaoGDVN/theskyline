@@ -21,6 +21,7 @@ mod traffic;
 mod vehicle;
 mod fade;
 mod weather;
+mod player;
 mod zones;
 
 use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, set_sound_volume, stop_sound, PlaySoundParams};
@@ -67,6 +68,7 @@ async fn main() {
         .expect("ambient.ogg");
     let music = load_sound_from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sounds/music.ogg"))).await.expect("music.ogg");
     play_sound(&music, PlaySoundParams { looped: true, volume: 0.5 });
+    let step = load_sound_from_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sounds/step.ogg"))).await.expect("step.ogg");
     let mut ambient_on = false;
 
     let mut game = Game::new(Models::load(), font);
@@ -114,6 +116,10 @@ async fn main() {
                     fade.request(Screen::Menu);
                     acc = 0.0;
                 }
+                if game.take_step() {
+                    play_sound(&step, PlaySoundParams { looped: false, volume: 0.35 * menu::master_volume() * menu::sfx_volume() });
+                }
+                game.set_alpha(acc / STEP);
                 game.draw();
                 let (details, state) = game.status();
                 rpc.tick(details, state);

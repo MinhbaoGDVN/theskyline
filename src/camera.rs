@@ -13,6 +13,7 @@ pub struct ChaseCam {
     pos: Vec3,
     look: Vec3,
     started: bool,
+    fh: f32,
 }
 
 impl ChaseCam {
@@ -21,6 +22,7 @@ impl ChaseCam {
             pos: Vec3::ZERO,
             look: Vec3::ZERO,
             started: false,
+            fh: 0.0,
         }
     }
 
@@ -48,6 +50,28 @@ impl ChaseCam {
             look.y += v.pitch.sin() * 8.0;
         }
         self.look = look;
+    }
+
+    /// Camera đi theo người khi đi bộ
+    pub fn follow(&mut self, dt: f32, pos: Vec3, heading: f32) {
+        if !self.started {
+            self.fh = heading;
+        }
+        // Góc quay được làm mượt, không bám ngay theo nhân vật
+        let mut d = heading - self.fh;
+        d = (d + PI).rem_euclid(2.0 * PI) - PI;
+        self.fh += d * (1.0 - (-10.0 * dt).exp());
+        let f = vec3(self.fh.sin(), 0.0, self.fh.cos());
+        let mut desired = pos - f * 9.0;
+        desired.y = (pos.y + 4.0).max(2.0);
+        if !self.started {
+            self.pos = desired;
+            self.started = true;
+        } else {
+            let k = 1.0 - (-12.0 * dt).exp();
+            self.pos = self.pos.lerp(desired, k);
+        }
+        self.look = pos + f * 6.0 + vec3(0.0, 1.8, 0.0);
     }
 
     /// Vật thể (tâm center, bán kính radius) có nằm trong tầm nhìn không

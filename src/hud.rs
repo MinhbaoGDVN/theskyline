@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-const HELP: &str = "W/S: ga/phanh | A/D: lái | Space: phanh tay | X/Z: số lên/xuống | T: tự động/thủ công | Shift/Ctrl: ga máy bay | F: bắn | 1-4, Q/E: đổi xe | R: hồi phục | H: bíp bíp";
+const HELP: &str = "W/S: ga/phanh (may bay: ga) | A/D: lai | Up/Down: mui may bay | E: len/xuong xe | Ctrl: chay bo | Space: phanh tay | X/Z: so | T: so tu dong | F: ban | R: hoi phuc | H: bip bip";
 
 /// Bảng thông tin ở góc trên trái, mỗi dòng một đoạn
 pub fn draw_panel(font: Option<&Font>, x: f32, y: f32, lines: &[String], size: u16) {

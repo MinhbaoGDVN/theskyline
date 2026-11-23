@@ -8,6 +8,9 @@ pub struct Controls {
     pub right: bool,
     pub thr_up: bool,
     pub thr_dn: bool,
+    pub arrow_up: bool,
+    pub arrow_down: bool,
+    pub run: bool,
     pub brake: bool,
     pub fire: bool,
     pub gear_up: bool,
@@ -21,8 +24,11 @@ pub fn read() -> Controls {
         down: is_key_down(KeyCode::S) || is_key_down(KeyCode::Down),
         left: is_key_down(KeyCode::A) || is_key_down(KeyCode::Left),
         right: is_key_down(KeyCode::D) || is_key_down(KeyCode::Right),
-        thr_up: is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift),
-        thr_dn: is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl),
+        thr_up: is_key_down(KeyCode::W),
+        thr_dn: is_key_down(KeyCode::S),
+        arrow_up: is_key_down(KeyCode::Up),
+        arrow_down: is_key_down(KeyCode::Down),
+        run: is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl),
         brake: is_key_down(KeyCode::Space),
         fire: is_key_down(KeyCode::F),
         gear_up: false,
@@ -42,6 +48,7 @@ pub struct Edges {
     pub gear_down: bool,
     pub auto_toggle: bool,
     pub dev_toggle: bool,
+    pub enter: bool,
 }
 
 impl Edges {
@@ -56,19 +63,13 @@ impl Edges {
         self.gear_down |= o.gear_down;
         self.auto_toggle |= o.auto_toggle;
         self.dev_toggle |= o.dev_toggle;
+        self.enter |= o.enter;
     }
 }
 
 pub fn read_edges() -> Edges {
-    let digits = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4];
     let mut e = Edges::default();
-    for (i, k) in digits.iter().enumerate() {
-        if is_key_pressed(*k) {
-            e.switch = Some(i);
-        }
-    }
-    e.next = is_key_pressed(KeyCode::E);
-    e.prev = is_key_pressed(KeyCode::Q);
+    e.enter = is_key_pressed(KeyCode::E);
     e.reset = is_key_pressed(KeyCode::R);
     e.gear_up = is_key_pressed(KeyCode::X);
     e.gear_down = is_key_pressed(KeyCode::Z);
