@@ -9,6 +9,7 @@ use crate::weather;
 pub enum Screen {
     Menu,
     Settings,
+    Credits,
     Playing,
 }
 
@@ -62,7 +63,7 @@ pub struct Menu {
     bg: Texture2D,
 }
 
-const MAIN_ITEMS: [&str; 3] = ["Chơi", "Cài đặt", "Thoát"];
+const MAIN_ITEMS: [&str; 4] = ["Chơi", "Cài đặt", "Credit", "Thoát"];
 const BTN_W: f32 = 420.0;
 const BTN_H: f32 = 76.0;
 const BTN_GAP: f32 = 104.0;
@@ -118,6 +119,7 @@ impl Menu {
         );
         match self.screen {
             Screen::Settings => self.settings_frame(font),
+            Screen::Credits => self.credits_frame(font),
             _ => self.main_frame(font),
         }
     }
@@ -148,6 +150,10 @@ impl Menu {
                         self.screen = Screen::Settings;
                         self.sel = 0;
                     }
+                    2 => {
+                        self.screen = Screen::Credits;
+                        self.sel = 0;
+                    }
                     _ => result = MenuResult::Quit,
                 }
             }
@@ -159,6 +165,41 @@ impl Menu {
             self.sel = (self.sel + 1) % MAIN_ITEMS.len();
         }
         result
+    }
+
+    fn credits_frame(&mut self, font: Option<&Font>) -> MenuResult {
+        let w = screen_width();
+        let h = screen_height();
+        let s = h / 720.0;
+        let x0 = (w - SET_W) / 2.0;
+        draw_panel(x0 - 28.0, 90.0 * s, SET_W + 56.0, 520.0 * s);
+        draw_centered(font, "CREDIT", w / 2.0, 140.0 * s, 40, gold());
+
+        let people = [
+            ("EzimerMC", "Music, Idea/Designer"),
+            ("k9os", "Tester"),
+            ("MinhbaoGDVN", "Coder, Model"),
+            ("[Heaven_Hunter]", "Model"),
+        ];
+        for (i, (name, role)) in people.iter().enumerate() {
+            let y = (200.0 + i as f32 * 80.0) * s;
+            draw_centered(font, name, w / 2.0, y, 30, WHITE);
+            draw_centered(font, role, w / 2.0, y + 30.0 * s, 22, Color::new(0.75, 0.8, 0.9, 1.0));
+        }
+
+        let bw = BTN_W;
+        let bh = SET_H * s;
+        let bx = (w - bw) / 2.0;
+        let by = 540.0 * s;
+        let (mx, my) = mouse_position();
+        let hover = inside(mx, my, bx, by, bw, bh);
+        let clicked = (hover && is_mouse_button_pressed(MouseButton::Left)) || is_key_pressed(KeyCode::Enter);
+        draw_button(font, "Quay lại", bx, by, bw, bh, 26, true);
+        if clicked || is_key_pressed(KeyCode::Escape) {
+            self.screen = Screen::Menu;
+            self.sel = 2;
+        }
+        MenuResult::None
     }
 
     fn settings_frame(&mut self, font: Option<&Font>) -> MenuResult {
