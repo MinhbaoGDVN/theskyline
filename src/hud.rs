@@ -27,7 +27,21 @@ pub fn draw_panel(font: Option<&Font>, x: f32, y: f32, lines: &[String], size: u
     }
 }
 
+/// Cài đặt: có hiện hướng dẫn điều khiển ở dưới cùng không
+pub static SHOW_HELP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+pub fn show_help() -> bool {
+    SHOW_HELP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_show_help(v: bool) {
+    SHOW_HELP.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn draw_help(font: Option<&Font>) {
+    if !show_help() {
+        return;
+    }
     let h = 26.0;
     let y = screen_height() - h;
     draw_rectangle(0.0, y, screen_width(), h, Color::new(0.0, 0.0, 0.0, 0.45));

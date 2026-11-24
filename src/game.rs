@@ -1,6 +1,8 @@
 use macroquad::prelude::*;
 
 use crate::camera::ChaseCam;
+use crate::civilians::{Civilian, CIV_TARGET, CORPSE_TIME};
+use crate::police::{Arrest, Cop, Kind as CopKind};
 use crate::city::{Building, City};
 use crate::combat::{self, Particle, Shell};
 use crate::config::{rnd, BLAST_RADIUS, BLOCK, EXT, GRID_N, TRAFFIC_COUNT};
@@ -16,6 +18,26 @@ use crate::vehicle::{default_fleet, Kind, Vehicle};
 
 /// Bóng đổ có thể vươn xa hơn vật thể, nên phải kiểm tra thêm khoảng này
 const SHADOW_MARGIN: f32 = 120.0;
+/// Băng đạn súng lục
+const MAG: u32 = 20;
+/// Tiền phạt khi bị bắt
+const FINE: u32 = 500;
+/// Thời gian để trả nợ phạt (giây)
+const DEBT_TIME: f32 = 900.0;
+/// Thời gian bị giam nếu không trả nợ (giây)
+const JAIL_TIME: f32 = 300.0;
+/// Vị trí đồn công an (tâm khối nhà)
+fn station() -> Vec3 {
+    let c = crate::map::block(2, -3);
+    vec3(c.x, 0.0, c.y)
+}
+
+/// Cửa đồn: điểm trên đường lưới gần đồn nhất (xe dừng ở đây, không lao vào nhà)
+fn station_door() -> Vec3 {
+    let s = station();
+    vec3((s.x / BLOCK).round() * BLOCK, 0.0, s.z)
+}
+
 /// Số đồng tiền tối đa trên đường
 const COIN_TARGET: usize = 40;
 /// Giá trị mỗi đồng tiền
@@ -78,6 +100,22 @@ pub struct Game {
     bumps_last: u32,
     weather: crate::weather::Weather,
     alpha: f32,
+    civs: Vec<Civilian>,
+    civ_timer: f32,
+    ammo: u32,
+    reload_t: f32,
+    fire_cd: f32,
+    stars: u32,
+    star_t: f32,
+    gun_equipped: bool,
+    inv_open: bool,
+    tracers: Vec<(Vec3, Vec3, f32)>,
+    cops: Vec<Cop>,
+    cop_timer: f32,
+    arrest: Arrest,
+    debt: u32,
+    debt_t: f32,
+    jail_t: f32,
 }
 
 impl Game {
@@ -121,6 +159,22 @@ impl Game {
             bumps_last: 0,
             weather: crate::weather::Weather::new(),
             alpha: 1.0,
+            civs: (0..CIV_TARGET).map(|_| Civilian::random_spawn()).collect(),
+            civ_timer: 0.0,
+            ammo: MAG,
+            reload_t: 0.0,
+            fire_cd: 0.0,
+            stars: 0,
+            star_t: 0.0,
+            gun_equipped: false,
+            inv_open: false,
+            tracers: Vec::new(),
+            cops: Vec::new(),
+            cop_timer: 0.0,
+            arrest: Arrest::Free,
+            debt: 0,
+            debt_t: 0.0,
+            jail_t: 0.0,
         }
     }
 
@@ -159,7 +213,9 @@ impl Game {
         c.auto_toggle = e.auto_toggle;
 
         let mut blasts: Vec<Vec3> = Vec::new();
-        if self.riding {
+        if self.arrest != Arrest::Free {
+            self.update_arrest(dt);
+        } else if self.riding {
             blasts = self.update_riding(dt, &e, &c);
         } else {
             self.update_on_foot(dt, &e);
@@ -167,6 +223,8 @@ impl Game {
             self.check_npc_hit_player();
         }
 
+        self.update_civilians(dt);
+        self.update_police(dt);
         blasts.extend(combat::step_shells(&mut self.shells, dt, &self.city));
         for n in &mut self.traffic {
             n.update(dt);
@@ -186,6 +244,11 @@ impl Game {
             self.cam.update(dt, &self.vehicles[self.active]);
         }
         self.notice_t -= dt;
+        self.update_gun_timers(dt);
+        for tr in &mut self.tracers {
+            tr.2 -= dt;
+        }
+        self.tracers.retain(|t| t.2 > 0.0);
     }
 
     /// Logic khi đang lái: phương tiện, bắn, va chạm. Trả về các điểm nổ cần xử lý.
@@ -244,7 +307,264 @@ impl Game {
         if e.enter {
             self.try_enter();
         }
+        if e.inv {
+            self.inv_open = !self.inv_open;
+        }
+        if e.equip {
+            self.gun_equipped = !self.gun_equipped;
+            let msg = if self.gun_equipped { "Đã trang bị súng lục" } else { "Đã cất súng lục" };
+            self.notify(msg, 1.5);
+        }
+        if e.reset && self.gun_equipped && self.ammo < MAG && self.reload_t <= 0.0 {
+            self.reload_t = 1.5;
+        }
+        if self.gun_equipped && e.fire {
+            self.player_shoot();
+        }
     }
+
+    /// Công an: xuất hiện theo số sao, đuổi theo người chơi; bắt được thì chở về đồn
+    fn update_police(&mut self, dt: f32) {
+        if self.stars == 0 {
+            self.cops.clear();
+        } else {
+            self.cop_timer -= dt;
+            if self.cop_timer <= 0.0 {
+                self.cop_timer = 2.0;
+                let foot = self.cops.iter().filter(|c| c.kind == CopKind::Foot).count() as u32;
+                let car = self.cops.iter().filter(|c| c.kind == CopKind::Car).count() as u32;
+                let p = self.player.pos;
+                if foot < self.stars * 2 {
+                    self.cops.push(Cop::spawn(p, CopKind::Foot));
+                } else if car < self.stars {
+                    self.cops.push(Cop::spawn(p, CopKind::Car));
+                }
+            }
+            let p = self.player.pos;
+            for c in &mut self.cops {
+                let speed = if c.kind == CopKind::Car { 14.0 } else { 6.0 };
+                c.drive(dt, p, speed, &self.city);
+            }
+            if !self.riding && self.arrest == Arrest::Free {
+                let caught = self
+                    .cops
+                    .iter()
+                    .any(|c| vec2(c.pos.x - p.x, c.pos.z - p.z).length() < 3.0);
+                if caught {
+                    self.start_arrest();
+                }
+            }
+        }
+        if self.debt > 0 && self.arrest == Arrest::Free {
+            self.debt_t -= dt;
+            if self.debt_t <= 0.0 {
+                self.jail();
+            }
+        }
+    }
+
+    /// Bị bắt: xe cảnh sát đưa về đồn, người chơi nằm trong xe (không dịch chuyển)
+    fn start_arrest(&mut self) {
+        self.arrest = Arrest::Carried;
+        self.cops.clear();
+        let p = self.player.pos;
+        let mut car = Cop::spawn(p, CopKind::Car);
+        car.pos = p + vec3(3.0, 0.0, 0.0);
+        car.carrying = true;
+        self.cops.push(car);
+        self.notify("Bị bắt! Đang chở về đồn", 3.0);
+    }
+
+    fn update_arrest(&mut self, dt: f32) {
+        match self.arrest {
+            Arrest::Carried => {
+                let door = station_door();
+                let mut arrived = false;
+                let mut at = self.player.pos;
+                if let Some(car) = self.cops.iter_mut().find(|c| c.carrying) {
+                    car.drive(dt, door, 14.0, &self.city);
+                    at = car.pos;
+                    arrived = vec2(car.pos.x - door.x, car.pos.z - door.z).length() < 6.0;
+                } else {
+                    arrived = true;
+                }
+                self.player.teleport(at);
+                if arrived {
+                    self.release_at_station();
+                }
+            }
+            Arrest::Jailed => {
+                self.jail_t -= dt;
+                if self.jail_t <= 0.0 {
+                    self.free_from_jail();
+                }
+            }
+            Arrest::Free => {}
+        }
+    }
+
+    /// Đến đồn: trừ phạt (không âm), phần còn thiếu thành nợ có thời hạn
+    fn release_at_station(&mut self) {
+        let pay = self.player.money.min(FINE);
+        self.player.money -= pay;
+        self.debt = FINE - pay;
+        self.cops.clear();
+        self.stars = 0;
+        self.star_t = 0.0;
+        self.arrest = Arrest::Free;
+        self.riding = false;
+        let door = station_door();
+        self.player.teleport(door);
+        if self.debt > 0 {
+            self.debt_t = DEBT_TIME;
+            let msg = format!("Nợ phạt {} $: nhặt tiền trong 15 phút", self.debt);
+            self.notify(&msg, 4.0);
+        } else {
+            self.notify("Đã nộp phạt, được thả", 3.0);
+        }
+    }
+
+    /// Hết thời hạn trả nợ: bị giam 5 phút
+    fn jail(&mut self) {
+        self.arrest = Arrest::Jailed;
+        self.jail_t = JAIL_TIME;
+        self.cops.clear();
+        self.stars = 0;
+        self.star_t = 0.0;
+        let st = station();
+        self.player.teleport(vec3(st.x, 0.0, st.z));
+        self.notify("Hết hạn trả nợ, bị giam 5 phút", 4.0);
+    }
+
+    fn free_from_jail(&mut self) {
+        self.arrest = Arrest::Free;
+        self.debt = 0;
+        self.debt_t = 0.0;
+        let st = station();
+        self.player.teleport(vec3(st.x, 0.0, st.z + 14.0));
+        self.notify("Đã ra tù", 3.0);
+    }
+
+    /// Dân thường đi lại quanh người chơi; xác nằm lại rồi biến mất; xa quá thì bỏ
+    fn update_civilians(&mut self, dt: f32) {
+        for c in &mut self.civs {
+            c.update(dt, &self.city);
+        }
+        let p = self.player.pos;
+        self.civs.retain(|c| {
+            if c.dead {
+                c.dead_t < CORPSE_TIME
+            } else {
+                (c.pos - p).length() < 230.0
+            }
+        });
+        self.civ_timer -= dt;
+        if self.civ_timer <= 0.0 {
+            self.civ_timer = 0.5;
+            let alive = self.civs.iter().filter(|c| !c.dead).count();
+            if alive < CIV_TARGET {
+                for _ in 0..5 {
+                    let c = Civilian::spawn_near(p);
+                    let d = (c.pos - p).length();
+                    if d > 25.0 && d < 160.0 && !self.city.hit(vec2(c.pos.x, c.pos.z), 0.5, 1.0) {
+                        self.civs.push(c);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_gun_timers(&mut self, dt: f32) {
+        self.fire_cd = (self.fire_cd - dt).max(0.0);
+        if self.reload_t > 0.0 {
+            self.reload_t -= dt;
+            if self.reload_t <= 0.0 {
+                self.reload_t = 0.0;
+                self.ammo = MAG;
+            }
+        }
+        if self.star_t > 0.0 {
+            self.star_t -= dt;
+            if self.star_t <= 0.0 && self.stars > 0 {
+                self.stars -= 1;
+                self.star_t = if self.stars > 0 { 40.0 } else { 0.0 };
+            }
+        }
+    }
+
+    /// Tăng sao truy nã (tối đa 5), mỗi lần đều làm mới thời gian giảm sao
+    fn add_wanted(&mut self, n: u32) {
+        self.stars = (self.stars + n).min(5);
+        self.star_t = 40.0;
+    }
+
+    /// Khoảng cách tới tường đầu tiên dọc tia bắn (nếu có)
+    fn ray_wall(&self, o: Vec3, d: Vec3, range: f32) -> Option<f32> {
+        let mut t = 0.5;
+        while t < range {
+            let p = o + d * t;
+            if self.city.hit(vec2(p.x, p.z), 0.05, p.y) {
+                return Some(t);
+            }
+            t += 0.5;
+        }
+        None
+    }
+
+    /// Tia bắn từ camera qua con trỏ chuột: (điểm gốc, hướng chuẩn hoá)
+    fn aim_ray(&self) -> (Vec3, Vec3) {
+        let cam = self.cam.camera();
+        let inv = cam.matrix().inverse();
+        let (mx, my) = mouse_position();
+        let x = mx / screen_width() * 2.0 - 1.0;
+        let y = 1.0 - my / screen_height() * 2.0;
+        let far = inv * vec4(x, y, 1.0, 1.0);
+        let far = far.truncate() / far.w;
+        let dir = (far - cam.position).normalize_or_zero();
+        (cam.position, dir)
+    }
+
+    /// Bắn một viên về phía con trỏ chuột: trúng dân thường đầu tiên trên tia (nếu không bị tường chắn)
+    fn player_shoot(&mut self) {
+        if !self.gun_equipped || self.ammo == 0 || self.reload_t > 0.0 || self.fire_cd > 0.0 {
+            return;
+        }
+        self.ammo -= 1;
+        self.fire_cd = 0.25;
+        let h = self.player.heading;
+        let f = vec3(h.sin(), 0.0, h.cos());
+        let r = vec3(h.cos(), 0.0, -h.sin());
+        let muzzle = self.player.pos + vec3(0.0, 1.25, 0.0) + f * 0.5 + r * 0.36;
+        let (_, d) = self.aim_ray();
+        let range = 400.0;
+        let wall = self.ray_wall(muzzle, d, range);
+        let mut best: Option<(usize, f32)> = None;
+        for (i, c) in self.civs.iter().enumerate() {
+            if let Some(t) = c.ray_hit(muzzle, d, range) {
+                if best.map_or(true, |(_, bt)| t < bt) {
+                    best = Some((i, t));
+                }
+            }
+        }
+        let mut end = match wall {
+            Some(w) => muzzle + d * w,
+            None => muzzle + d * range,
+        };
+        if let Some((i, t)) = best {
+            if wall.map_or(true, |w| t < w) {
+                end = muzzle + d * t;
+                self.civs[i].dead = true;
+                self.civs[i].dead_t = 0.0;
+                combat::burst(&mut self.particles, end, 15, 8.0);
+                self.add_wanted(1);
+                self.notify("Bạn vừa bắn dân thường! Bị truy nã", 2.5);
+            }
+        }
+        self.tracers.push((muzzle, end, 0.08));
+        combat::burst(&mut self.particles, muzzle, 4, 3.0);
+    }
+
 
     /// Lên xe gần nhất trong bán kính 6 m (máy bay phải đang nằm trên đất)
     fn try_enter(&mut self) {
@@ -375,6 +695,15 @@ impl Game {
         if got > 0 {
             let gain = got * COIN_VALUE;
             self.player.money += gain;
+            if self.debt > 0 {
+                let pay = self.debt.min(self.player.money);
+                self.player.money -= pay;
+                self.debt -= pay;
+                if self.debt == 0 {
+                    self.debt_t = 0.0;
+                    self.notify("Đã trả hết nợ phạt", 2.5);
+                }
+            }
             self.notify(&format!("+{gain} $"), 1.0);
         }
     }
@@ -517,8 +846,23 @@ impl Game {
                 push_model(&mut verts, &model.parts, v.transform());
             }
         }
-        if !self.riding {
-            self.player.draw(&mut verts, self.alpha);
+        for c in &self.cops {
+            if self.cam.visible(c.pos, 3.0) {
+                c.draw(&mut verts, &self.models);
+            }
+        }
+        if !self.riding && self.arrest == Arrest::Free {
+            let (_, aim) = self.aim_ray();
+            let pitch = aim.y.clamp(-1.0, 1.0).asin();
+            self.player.draw(&mut verts, self.alpha, self.gun_equipped, pitch);
+        }
+        for (a, b, _) in &self.tracers {
+            draw_line_3d(*a, *b, Color::new(1.0, 0.92, 0.5, 1.0));
+        }
+        for civ in &self.civs {
+            if self.cam.visible(civ.pos, 2.0) {
+                civ.draw(&mut verts);
+            }
         }
         for c in &self.coins {
             if self.cam.visible(*c, 2.0) {
@@ -538,6 +882,20 @@ impl Game {
         self.draw_hud();
         self.weather.draw_notice(self.font.as_ref());
         minimap::draw(&self.city, &self.vehicles, self.active, &self.traffic);
+        if !self.riding {
+            let (ms, mm) = (200.0_f32, 14.0_f32);
+            let x0 = screen_width() - ms - mm;
+            let y0 = mm;
+            let sc = ms / (2.0 * crate::config::EXT);
+            let p = self.player.pos;
+            let px = x0 + (p.x.clamp(-crate::config::EXT, crate::config::EXT) + crate::config::EXT) * sc;
+            let py = y0 + (p.z.clamp(-crate::config::EXT, crate::config::EXT) + crate::config::EXT) * sc;
+            draw_circle(px, py, 4.0, GREEN);
+            draw_circle_lines(px, py, 6.0, 1.5, WHITE);
+        }
+        if self.inv_open && !self.riding {
+            self.draw_inventory();
+        }
     }
 
     /// Thông tin của phương tiện đang lái, dùng cho cả hai chế độ
@@ -609,8 +967,23 @@ impl Game {
             }
         } else {
             lines.push("Đi bộ".to_string());
+            let gun = if self.reload_t > 0.0 { "Đang nạp...".to_string() } else { format!("{}/{}", self.ammo, MAG) };
+            if self.gun_equipped {
+                lines.push(format!("Súng: {gun}"));
+            }
         }
         lines.push(format!("Tiền: {} $", self.player.money));
+        match self.arrest {
+            Arrest::Carried => lines.push("Đang bị đưa về đồn".to_string()),
+            Arrest::Jailed => lines.push(format!("Đang bị giam: {:.0} s", self.jail_t)),
+            Arrest::Free => {}
+        }
+        if self.debt > 0 {
+            lines.push(format!("Nợ phạt: {} $ ({:.0} s)", self.debt, self.debt_t));
+        }
+        if self.stars > 0 {
+            lines.push(format!("Truy nã: {}/5 sao", self.stars));
+        }
 
         hud::draw_panel(font, 12.0, 12.0, &lines, 18);
         hud::draw_help(font);
@@ -618,6 +991,23 @@ impl Game {
         if self.notice_t > 0.0 {
             hud::draw_notice(font, &self.notice);
         }
+    }
+
+    /// Kho đồ (I): súng lục là một món riêng, nhấn 1 để trang bị hoặc cất
+    fn draw_inventory(&self) {
+        let font = self.font.as_ref();
+        let w = 440.0;
+        let h = 200.0;
+        let x = (screen_width() - w) / 2.0;
+        let y = (screen_height() - h) / 2.0;
+        draw_rectangle(x, y, w, h, Color::new(0.0, 0.0, 0.0, 0.7));
+        draw_rectangle(x, y, w, 3.0, Color::new(0.97, 0.72, 0.16, 1.0));
+        draw_text_ex("KHO ĐỒ (I để đóng)", x + 16.0, y + 34.0, TextParams { font, font_size: 24, color: WHITE, ..Default::default() });
+        let status = if self.gun_equipped { "ĐANG TRANG BỊ" } else { "đang cất" };
+        let row = format!("Súng lục: {}/{} viên  [{}]", self.ammo, MAG, status);
+        draw_text_ex(&row, x + 16.0, y + 84.0, TextParams { font, font_size: 22, color: WHITE, ..Default::default() });
+        draw_text_ex("Nhấn 1 để trang bị / cất súng", x + 16.0, y + 124.0, TextParams { font, font_size: 18, color: Color::new(0.8, 0.85, 0.9, 1.0), ..Default::default() });
+        draw_text_ex(&format!("Tiền: {} $", self.player.money), x + 16.0, y + 164.0, TextParams { font, font_size: 20, color: Color::new(1.0, 0.85, 0.3, 1.0), ..Default::default() });
     }
 
     /// Thanh máu và thể lực ở góc dưới trái (có khung, có số)

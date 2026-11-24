@@ -1,4 +1,6 @@
 mod camera;
+mod civilians;
+mod police;
 mod city;
 mod combat;
 #[path = ".config"]
@@ -98,19 +100,6 @@ async fn main() {
                 while acc >= STEP {
                     game.update(STEP);
                     acc -= STEP;
-                }
-                for (n, k) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4].iter().enumerate() {
-                    if is_key_pressed(*k) {
-                        eprintln!("Nhan phim {}", n + 1);
-                    }
-                }
-                while let Some(c) = get_char_pressed() {
-                    if let Some(d) = c.to_digit(10) {
-                        if (1..=4).contains(&d) {
-                            game.select_vehicle((d - 1) as usize);
-                            eprintln!("Chon xe {}", d);
-                        }
-                    }
                 }
                 if is_key_pressed(KeyCode::Escape) {
                     fade.request(Screen::Menu);

@@ -72,11 +72,11 @@ const COL_X: f32 = 0.07;
 const COL_Y: f32 = 0.42;
 
 // Man hinh Cai dat: toa do theo man hinh 720 px (se nhan voi ti le thuc te)
-const SET_ROWS: usize = 6;
+const SET_ROWS: usize = 7;
 const SET_W: f32 = 620.0;
 const SET_H: f32 = 52.0;
 /// Vi tri y cua tung hang: 0-2 am thanh, 3 dieu khien, 4 hien thi, 5 quay lai
-const ROW_Y: [f32; SET_ROWS] = [140.0, 210.0, 280.0, 392.0, 504.0, 574.0];
+const ROW_Y: [f32; SET_ROWS] = [140.0, 210.0, 280.0, 392.0, 504.0, 574.0, 644.0];
 /// Tieu de tung nhom
 const HEAD_Y: [(f32, &str); 3] = [(122.0, "ÂM THANH"), (374.0, "ĐIỀU KHIỂN"), (486.0, "HIỂN THỊ")];
 
@@ -207,7 +207,7 @@ impl Menu {
         let h = screen_height();
         let s = h / 720.0;
         let x0 = (w - SET_W) / 2.0;
-        draw_panel(x0 - 28.0, 90.0 * s, SET_W + 56.0, 600.0 * s);
+        draw_panel(x0 - 28.0, 90.0 * s, SET_W + 56.0, 610.0 * s);
         for (hy, title) in HEAD_Y.iter() {
             draw_centered(font, title, w / 2.0, hy * s, 22, gold());
         }
@@ -217,12 +217,14 @@ impl Menu {
         let sfx = sfx_volume();
         let invert = input::invert_plane();
         let notice = weather::show_notice();
+        let help = crate::hud::show_help();
         let labels: [String; SET_ROWS] = [
             format!("Âm lượng tổng: {}%", pct(master)),
             format!("Nhạc nền: {}%", pct(music)),
             format!("Hiệu ứng: {}%", pct(sfx)),
             format!("Đảo ngược điều khiển máy bay: {}", onoff(invert)),
             format!("Thông báo thời tiết: {}", onoff(notice)),
+            format!("Hướng dẫn điều khiển: {}", onoff(help)),
             "Quay lại".to_string(),
         ];
 
@@ -231,6 +233,7 @@ impl Menu {
         let right = is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D);
         let mut toggle_invert = false;
         let mut toggle_notice = false;
+        let mut toggle_help = false;
         let mut back = false;
         for i in 0..SET_ROWS {
             let bw = if i == SET_ROWS - 1 { BTN_W } else { SET_W };
@@ -273,6 +276,7 @@ impl Menu {
                 match i {
                     3 => toggle_invert = true,
                     4 => toggle_notice = true,
+                    5 => toggle_help = true,
                     _ => back = true,
                 }
             }
@@ -289,6 +293,9 @@ impl Menu {
         }
         if toggle_notice {
             weather::set_show_notice(!notice);
+        }
+        if toggle_help {
+            crate::hud::set_show_help(!help);
         }
         if back || is_key_pressed(KeyCode::Escape) {
             self.screen = Screen::Menu;

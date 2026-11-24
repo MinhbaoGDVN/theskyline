@@ -49,6 +49,9 @@ pub struct Edges {
     pub auto_toggle: bool,
     pub dev_toggle: bool,
     pub enter: bool,
+    pub inv: bool,
+    pub equip: bool,
+    pub fire: bool,
 }
 
 impl Edges {
@@ -64,12 +67,18 @@ impl Edges {
         self.auto_toggle |= o.auto_toggle;
         self.dev_toggle |= o.dev_toggle;
         self.enter |= o.enter;
+        self.inv |= o.inv;
+        self.equip |= o.equip;
+        self.fire |= o.fire;
     }
 }
 
 pub fn read_edges() -> Edges {
     let mut e = Edges::default();
     e.enter = is_key_pressed(KeyCode::E);
+    e.inv = is_key_pressed(KeyCode::I);
+    e.equip = is_key_pressed(KeyCode::Key1);
+    e.fire = is_mouse_button_pressed(MouseButton::Left);
     e.reset = is_key_pressed(KeyCode::R);
     e.gear_up = is_key_pressed(KeyCode::X);
     e.gear_down = is_key_pressed(KeyCode::Z);

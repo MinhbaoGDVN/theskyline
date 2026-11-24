@@ -10,6 +10,9 @@ pub const MAX_STAMINA: f32 = 100.0;
 const WALK_SPEED: f32 = 9.5;
 const RUN_SPEED: f32 = 17.0;
 const TURN_SPEED: f32 = 4.0;
+/// Model súng lục (file OBJ riêng)
+const PISTOL_OBJ: &str = include_str!("../assets/models/pistol.obj");
+const PISTOL_MTL: &str = include_str!("../assets/models/pistol.mtl");
 
 /// Khối lập phương đơn vị (cạnh 1, tâm tại gốc): dùng để vẽ mọi bộ phận cơ thể
 const CUBE: &str = "usemtl c
@@ -105,6 +108,12 @@ impl Player {
         self.stamina = self.stamina.clamp(0.0, MAX_STAMINA);
     }
 
+    /// Đặt vị trí ngay (dùng khi bị bắt hoặc được thả), không nội suy
+    pub fn teleport(&mut self, pos: Vec3) {
+        self.pos = pos;
+        self.prev_pos = pos;
+    }
+
     /// Trả về true đúng một lần mỗi khi nhân vật bước một bước
     pub fn take_step(&mut self) -> bool {
         let r = self.step_ready;
@@ -122,7 +131,7 @@ impl Player {
     }
 
     /// Vẽ nhân vật. Hệ tọa độ cục bộ: z là phía trước, x là bên phải, y là lên.
-    pub fn draw(&self, verts: &mut Vec<Vertex>, alpha: f32) {
+    pub fn draw(&self, verts: &mut Vec<Vertex>, alpha: f32, armed: bool, pitch: f32) {
         let (pos, h) = self.render_state(alpha);
         let t = get_time() as f32;
         let swing = if self.moving { self.walk_t.sin() * 0.55 } else { 0.0 };
@@ -159,13 +168,26 @@ impl Player {
         part(verts, base * Mat4::from_translation(vec3(0.0, 0.90, 0.0)) * Mat4::from_scale(vec3(0.58, 0.14, 0.34)), belt);
         part(verts, base * Mat4::from_translation(vec3(0.0, 1.55, 0.02)) * Mat4::from_scale(vec3(0.2, 0.08, 0.2)), skin);
 
-        // Hai tay: xoay quanh vai, đung đưa ngược chiều chân
+        // Hai tay: xoay quanh vai, đung đưa ngược chiều chân; tay phải giơ súng khi đã trang bị
         for (side, phase) in [(-1.0_f32, -1.0_f32), (1.0, 1.0)] {
+            let aiming = armed && side > 0.0;
+            let angle = if aiming {
+                -std::f32::consts::FRAC_PI_2 - pitch
+            } else {
+                swing * phase * 0.8
+            };
             let arm = base
                 * Mat4::from_translation(vec3(side * 0.37, 1.46, 0.0))
-                * Mat4::from_rotation_x(swing * phase * 0.8);
+                * Mat4::from_rotation_x(angle);
             part(verts, arm * Mat4::from_translation(vec3(0.0, -0.31, 0.0)) * Mat4::from_scale(vec3(0.18, 0.62, 0.2)), shirt);
             part(verts, arm * Mat4::from_translation(vec3(0.0, -0.69, 0.0)) * Mat4::from_scale(vec3(0.16, 0.14, 0.18)), skin);
+            if aiming {
+                let gun = arm
+                    * Mat4::from_translation(vec3(0.0, -0.66, 0.05))
+                    * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                let parts = parse_obj(PISTOL_OBJ, PISTOL_MTL);
+                push_model(verts, &parts, gun);
+            }
         }
 
         // Đầu, tóc, mắt
