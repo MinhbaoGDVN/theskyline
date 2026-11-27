@@ -176,15 +176,15 @@ impl Menu {
         draw_centered(font, "CREDIT", w / 2.0, 140.0 * s, 40, gold());
 
         let people = [
-            ("EzimerMC", "Music, Idea/Designer"),
-            ("k9os", "Tester"),
-            ("MinhbaoGDVN", "Coder, Model"),
-            ("[Heaven_Hunter]", "Model"),
+            ("EzimerMC", "Music, Idea/Designer", "https://www.youtube.com/@EzimerMC"),
+            ("k9os", "Tester", "https://www.youtube.com/@k9os.2"),
+            ("MinhbaoGDVN", "Coder, Model", "https://www.youtube.com/@MinhbaoGDVN_real"),
         ];
-        for (i, (name, role)) in people.iter().enumerate() {
-            let y = (200.0 + i as f32 * 80.0) * s;
+        for (i, (name, role, link)) in people.iter().enumerate() {
+            let y = (190.0 + i as f32 * 96.0) * s;
             draw_centered(font, name, w / 2.0, y, 30, WHITE);
             draw_centered(font, role, w / 2.0, y + 30.0 * s, 22, Color::new(0.75, 0.8, 0.9, 1.0));
+            draw_centered(font, link, w / 2.0, y + 54.0 * s, 18, Color::new(0.45, 0.75, 1.0, 1.0));
         }
 
         let bw = BTN_W;

@@ -661,6 +661,19 @@ impl Game {
                 break;
             }
         }
+        // Máy bay về lại sân bay (tránh bị kẹt sau khi người chơi hẹo)
+        for v in &mut self.vehicles {
+            if v.kind == Kind::Plane {
+                v.pos = vec3(-700.0, 0.0, 0.0);
+                v.heading = std::f32::consts::FRAC_PI_2;
+                v.speed = 0.0;
+                v.kmh = 0.0;
+                v.pitch = 0.0;
+                v.roll = 0.0;
+                v.throttle = 0.0;
+                v.broken = false;
+            }
+        }
         self.player.pos = vec3(spot.x, 0.0, spot.y);
         self.player.hp = MAX_HP;
         self.player.stamina = MAX_STAMINA;
