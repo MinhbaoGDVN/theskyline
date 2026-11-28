@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 
 use crate::camera::ChaseCam;
 use crate::civilians::{Civilian, CIV_TARGET, CORPSE_TIME};
+use crate::disasters::{Disasters, Kind as DisasterKind};
 use crate::police::{Arrest, Cop, Kind as CopKind};
 use crate::city::{Building, City};
 use crate::combat::{self, Particle, Shell};
@@ -35,6 +36,12 @@ fn station() -> Vec3 {
     let c = crate::map::block(2, -3);
     vec3(c.x, 0.0, c.y)
 }
+
+/// Nhà tù: tâm và nửa cạnh khu có tường bao
+fn prison_center() -> Vec3 {
+    vec3(-520.0, 0.0, -300.0)
+}
+const PRISON_HALF: f32 = 30.0;
 
 /// Cửa đồn: điểm trên đường lưới gần đồn nhất (xe dừng ở đây, không lao vào nhà)
 fn station_door() -> Vec3 {
@@ -137,6 +144,14 @@ pub struct Game {
     debt_t: f32,
     jail_t: f32,
     shop_open: Option<usize>,
+    mission: Option<Vec3>,
+    chat_open: bool,
+    chat_buf: String,
+    chat_log: Vec<(String, f32)>,
+    disasters: Disasters,
+    lift_y: f32,
+    lift_target: f32,
+    lift_aboard: bool,
 }
 
 impl Game {
@@ -197,6 +212,14 @@ impl Game {
             debt_t: 0.0,
             jail_t: 0.0,
             shop_open: None,
+            mission: None,
+            chat_open: false,
+            chat_buf: String::new(),
+            chat_log: Vec::new(),
+            disasters: Disasters::new(),
+            lift_y: 0.0,
+            lift_target: 0.0,
+            lift_aboard: false,
         }
     }
 
@@ -209,6 +232,25 @@ impl Game {
     pub fn begin_frame(&mut self) {
         let e = input::read_edges();
         self.edges.merge(&e);
+        if self.chat_open {
+            while let Some(ch) = get_char_pressed() {
+                if !ch.is_control() && self.chat_buf.chars().count() < 120 {
+                    self.chat_buf.push(ch);
+                }
+            }
+            if is_key_pressed(KeyCode::Backspace) {
+                self.chat_buf.pop();
+            }
+            if is_key_pressed(KeyCode::Enter) {
+                self.send_chat();
+            }
+        } else if is_key_pressed(KeyCode::T) {
+            // Mở chat: T không được kích hoạt số tự động của xe
+            self.chat_open = true;
+            self.chat_buf.clear();
+            self.edges.auto_toggle = false;
+            while get_char_pressed().is_some() {}
+        }
     }
 
     /// Một bước logic cố định (dt luôn là 1/60 giây)
@@ -223,30 +265,55 @@ impl Game {
         }
 
         // Phím bấm chỉ dùng cho bước đầu tiên của frame
-        let e = std::mem::take(&mut self.edges);
+        let mut e = std::mem::take(&mut self.edges);
+        if self.chat_open {
+            e.enter = false;
+            e.fire = false;
+            e.equip = false;
+            e.inv = false;
+            e.reset = false;
+            e.auto_toggle = false;
+            e.gear_up = false;
+            e.gear_down = false;
+        }
         if e.dev_toggle {
             self.dev = !self.dev;
             let state = if self.dev { "BẬT" } else { "TẮT" };
             self.notify(&format!("Dev mode: {state}"), 2.0);
         }
         let mut c: Controls = input::read();
+        if self.chat_open {
+            c.up = false;
+            c.down = false;
+            c.left = false;
+            c.right = false;
+            c.run = false;
+            c.thr_up = false;
+            c.thr_dn = false;
+            c.arrow_up = false;
+            c.arrow_down = false;
+        }
         c.gear_up = e.gear_up;
         c.gear_down = e.gear_down;
         c.auto_toggle = e.auto_toggle;
 
         let mut blasts: Vec<Vec3> = Vec::new();
         if self.arrest != Arrest::Free {
-            self.update_arrest(dt);
+            self.update_arrest(dt, &c);
         } else if self.riding {
             blasts = self.update_riding(dt, &e, &c);
         } else {
             self.update_on_foot(dt, &e);
-            self.player.update(dt, c.up, c.down, c.left, c.right, c.run, &self.city);
+            if !self.lift_aboard {
+                self.player.update(dt, c.up, c.down, c.left, c.right, c.run, &self.city);
+            }
             self.check_npc_hit_player();
         }
 
         self.update_civilians(dt);
         self.update_police(dt);
+        self.update_disasters(dt);
+        self.update_lift(dt);
         blasts.extend(combat::step_shells(&mut self.shells, dt, &self.city));
         for n in &mut self.traffic {
             n.update(dt);
@@ -267,6 +334,10 @@ impl Game {
         }
         self.notice_t -= dt;
         self.update_gun_timers(dt);
+        for m in &mut self.chat_log {
+            m.1 -= dt;
+        }
+        self.chat_log.retain(|m| m.1 > 0.0);
         for tr in &mut self.tracers {
             tr.2 -= dt;
         }
@@ -321,27 +392,32 @@ impl Game {
 
         self.try_fire(c);
         self.npc_collide();
+        self.check_mission();
         Vec::new()
     }
 
     /// Logic khi đi bộ: lên xe khi bấm E gần phương tiện
     /// Đổi vị trí chuột trên minimap thành toạ độ thế giới (nếu chuột nằm trong minimap)
     fn minimap_click_world(&self) -> Option<Vec3> {
-        let (ms, mm) = (200.0_f32, 14.0_f32);
+        let (ms, mm) = (crate::minimap::SIZE, crate::minimap::MARGIN);
         let x0 = screen_width() - ms - mm;
         let y0 = mm;
         let (mx, my) = mouse_position();
         if mx < x0 || mx > x0 + ms || my < y0 || my > y0 + ms {
             return None;
         }
-        let sc = ms / (2.0 * crate::config::EXT);
-        let x = (mx - x0) / sc - crate::config::EXT;
-        let z = (my - y0) / sc - crate::config::EXT;
+        let sc = ms / (2.0 * crate::minimap::HALF);
+        let x = (mx - x0) / sc - crate::minimap::HALF;
+        let z = (my - y0) / sc - crate::minimap::HALF;
         Some(vec3(x, 0.0, z))
     }
 
     /// Dịch chuyển người chơi tới điểm đã nhấn trên minimap (tốn tiền, không vào nhà)
     fn try_teleport(&mut self) {
+        if self.lift_aboard {
+            self.notify("Ra khỏi thang máy trước", 1.5);
+            return;
+        }
         let Some(dest) = self.minimap_click_world() else {
             return;
         };
@@ -436,7 +512,7 @@ impl Game {
         self.notify("Bị bắt! Đang chở về đồn", 3.0);
     }
 
-    fn update_arrest(&mut self, dt: f32) {
+    fn update_arrest(&mut self, dt: f32, c: &Controls) {
         match self.arrest {
             Arrest::Carried => {
                 let door = station_door();
@@ -455,6 +531,17 @@ impl Game {
                 }
             }
             Arrest::Jailed => {
+                // Trong tù vẫn đi lại được, nhưng không ra khỏi tường
+                self.player.update(dt, c.up, c.down, c.left, c.right, c.run, &self.city);
+                let m = prison_center();
+                let lim = PRISON_HALF - 1.5;
+                let p = self.player.pos;
+                let inside = vec3(
+                    p.x.clamp(m.x - lim, m.x + lim),
+                    0.0,
+                    p.z.clamp(m.z - lim, m.z + lim),
+                );
+                self.player.teleport(inside);
                 self.jail_t -= dt;
                 if self.jail_t <= 0.0 {
                     self.free_from_jail();
@@ -492,8 +579,8 @@ impl Game {
         self.cops.clear();
         self.stars = 0;
         self.star_t = 0.0;
-        let st = station();
-        self.player.teleport(vec3(st.x, 0.0, st.z));
+        let m = prison_center();
+        self.player.teleport(vec3(m.x, 0.0, m.z));
         self.notify("Hết hạn trả nợ, bị giam 5 phút", 4.0);
     }
 
@@ -501,8 +588,8 @@ impl Game {
         self.arrest = Arrest::Free;
         self.debt = 0;
         self.debt_t = 0.0;
-        let st = station();
-        self.player.teleport(vec3(st.x, 0.0, st.z + 14.0));
+        let m = prison_center();
+        self.player.teleport(vec3(m.x, 0.0, m.z - PRISON_HALF - 4.0));
         self.notify("Đã ra tù", 3.0);
     }
 
@@ -628,7 +715,70 @@ impl Game {
 
 
     /// Lên xe gần nhất trong bán kính 6 m (máy bay phải đang nằm trên đất)
-    /// Hai cửa hàng: tạp hoá ở nông thôn (ngoài thành phố) và quán phở ở chân toà cao nhất
+    /// Thang máy ở sát cạnh nhà cao nhất: (x cabin, z, độ cao nóc, mép nóc)
+    fn lift_info(&self) -> Option<(f32, f32, f32, f32)> {
+        let b = self.city.buildings.iter().max_by(|a, b| {
+            a.top.partial_cmp(&b.top).unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+        let cz = (b.min.y + b.max.y) * 0.5;
+        Some((b.max.x + 1.5, cz, b.top, b.max.x))
+    }
+
+    /// Thang máy chạy 6 m/s; người đang trong thang máy đi theo
+    fn update_lift(&mut self, dt: f32) {
+        let Some((cx, cz, _, _)) = self.lift_info() else {
+            return;
+        };
+        let step = 6.0 * dt;
+        let diff = self.lift_target - self.lift_y;
+        if diff.abs() <= step {
+            self.lift_y = self.lift_target;
+        } else {
+            self.lift_y += diff.signum() * step;
+        }
+        if self.lift_aboard {
+            self.player.teleport(vec3(cx, self.lift_y, cz));
+        }
+    }
+
+    /// E gần thang máy: lên xe thang, hoặc ra khỏi thang khi đã dừng. Trả về true nếu đã xử lý.
+    fn try_lift(&mut self) -> bool {
+        let Some((cx, cz, top, edge)) = self.lift_info() else {
+            return false;
+        };
+        let stopped = (self.lift_y - self.lift_target).abs() < 0.01;
+        if self.lift_aboard {
+            if !stopped {
+                self.notify("Thang máy đang chạy", 1.5);
+                return true;
+            }
+            self.lift_aboard = false;
+            let landing = if self.lift_y > top * 0.5 {
+                vec3(edge - 0.5, top, cz)
+            } else {
+                vec3(edge + 3.5, 0.0, cz)
+            };
+            self.player.teleport(landing);
+            self.notify("Đã ra khỏi thang máy", 1.5);
+            return true;
+        }
+        let p = self.player.pos;
+        let near = vec2(p.x - cx, p.z - cz).length() < 3.5 && (p.y - self.lift_y).abs() < 2.0;
+        if !near {
+            return false;
+        }
+        if !stopped {
+            self.notify("Thang máy đang chạy", 1.5);
+            return true;
+        }
+        self.lift_aboard = true;
+        self.lift_target = if self.lift_y < top * 0.5 { top } else { 0.0 };
+        let msg = if self.lift_target > 0.0 { "Thang máy lên nóc..." } else { "Thang máy xuống đất..." };
+        self.notify(msg, 1.5);
+        true
+    }
+
+    /// Hai cửa hàng: tạp hoá ở nông thôn (ngoài thành phố) và quán phở trên nóc toà cao nhất
     fn shops(&self) -> Vec<Shop> {
         let tallest = self
             .city
@@ -636,7 +786,7 @@ impl Game {
             .iter()
             .max_by(|a, b| a.top.partial_cmp(&b.top).unwrap_or(std::cmp::Ordering::Equal));
         let pho_pos = match tallest {
-            Some(b) => vec3(b.max.x + 6.0, 0.0, (b.min.y + b.max.y) * 0.5),
+            Some(b) => vec3((b.min.x + b.max.x) * 0.5, b.top, (b.min.y + b.max.y) * 0.5),
             None => vec3(0.0, 0.0, 0.0),
         };
         vec![
@@ -655,12 +805,70 @@ impl Game {
         ]
     }
 
+    /// Bảng nhiệm vụ máy bay, gần sân bay
+    fn board_pos() -> Vec3 {
+        vec3(-650.0, 0.0, 40.0)
+    }
+
+    /// Dân đang cần giúp, trong 3 m
+    fn near_help(&self) -> Option<usize> {
+        let p = self.player.pos;
+        self.civs
+            .iter()
+            .position(|c| c.help && !c.dead && vec2(c.pos.x - p.x, c.pos.z - p.z).length() < 3.0)
+    }
+
+    fn help_civilian(&mut self, i: usize) {
+        let reward = rnd(1000.0, 3000.0) as u32;
+        self.civs[i].help = false;
+        self.player.money += reward;
+        self.notify(&format!("Đã giúp dân: +{reward} $"), 2.5);
+    }
+
+    fn near_board(&self) -> bool {
+        let p = self.player.pos;
+        let b = Self::board_pos();
+        vec2(b.x - p.x, b.z - p.z).length() < 5.0
+    }
+
+    /// Nhận nhiệm vụ: chọn một điểm trong thành phố, cách bảng ít nhất 250 m
+    fn take_mission(&mut self) {
+        if self.mission.is_some() {
+            self.notify("Đang có nhiệm vụ rồi", 2.0);
+            return;
+        }
+        let b = Self::board_pos();
+        for _ in 0..20 {
+            let t = vec3(rnd(-350.0, 350.0), 0.0, rnd(-350.0, 350.0));
+            if vec2(t.x - b.x, t.z - b.z).length() > 250.0 && !self.city.hit(vec2(t.x, t.z), 4.0, 1.0) {
+                self.mission = Some(t);
+                self.notify("Nhiệm vụ: bay tới cột vàng và hạ cánh (+50 000 $)", 4.0);
+                return;
+            }
+        }
+        self.notify("Thử lại nhận nhiệm vụ", 2.0);
+    }
+
+    /// Máy bay hạ cánh gần cột vàng thì hoàn thành nhiệm vụ
+    fn check_mission(&mut self) {
+        let Some(t) = self.mission else {
+            return;
+        };
+        let v = &self.vehicles[self.active];
+        let near = vec2(v.pos.x - t.x, v.pos.z - t.z).length() < 40.0;
+        if v.kind == Kind::Plane && v.pos.y < 1.5 && v.speed.abs() < 2.0 && near {
+            self.player.money += 50_000;
+            self.mission = None;
+            self.notify("Hoàn thành nhiệm vụ: +50 000 $", 3.0);
+        }
+    }
+
     /// Cửa hàng gần người chơi (trong 4 m), nếu có
     fn near_shop(&self) -> Option<usize> {
         let p = self.player.pos;
         self.shops()
             .iter()
-            .position(|s| vec2(s.pos.x - p.x, s.pos.z - p.z).length() < 4.0)
+            .position(|s| vec2(s.pos.x - p.x, s.pos.z - p.z).length() < 4.0 && (p.y - s.pos.y).abs() < 3.0)
     }
 
     fn buy(&mut self, s: Shop) {
@@ -728,6 +936,17 @@ impl Game {
     fn try_enter(&mut self) {
         if let Some(i) = self.near_shop() {
             self.shop_open = Some(i);
+            return;
+        }
+        if let Some(i) = self.near_help() {
+            self.help_civilian(i);
+            return;
+        }
+        if self.near_board() {
+            self.take_mission();
+            return;
+        }
+        if self.try_lift() {
             return;
         }
         let p = self.player.pos;
@@ -1054,32 +1273,113 @@ impl Game {
         // Vẽ hai cửa hàng bằng khối
         for s in self.shops() {
             if self.cam.visible(s.pos, 6.0) {
+                // Tạp hoá nông thôn: đường nối từ đường lưới (x = 480) tới cửa hàng
+                if let ShopKind::Ammo = s.kind {
+                    let x0 = 490.0;
+                    let x1 = s.pos.x - 1.5;
+                    push_box(&mut verts, vec3((x0 + x1) * 0.5, 0.12, s.pos.z), vec3(x1 - x0, 0.04, 8.0), [0.25, 0.25, 0.28]);
+                }
                 let roof = match s.kind {
                     ShopKind::Ammo => [0.5, 0.35, 0.2],
                     ShopKind::Food => [0.7, 0.15, 0.1],
                 };
                 push_box(&mut verts, s.pos + vec3(0.0, 1.5, 0.0), vec3(3.0, 3.0, 3.0), [0.9, 0.85, 0.7]);
                 push_box(&mut verts, s.pos + vec3(0.0, 3.1, 0.0), vec3(3.6, 0.4, 3.6), roof);
-                push_box(&mut verts, s.pos + vec3(0.0, 3.6, 1.6), vec3(3.0, 0.6, 0.2), roof);
+                push_box(&mut verts, s.pos + vec3(-1.6, 3.6, 0.0), vec3(0.2, 0.6, 3.0), roof);
+            }
+        }
+        if let Some(t) = self.mission {
+            if self.cam.visible(t, 40.0) {
+                push_box(&mut verts, t + vec3(0.0, 30.0, 0.0), vec3(3.0, 60.0, 3.0), [1.0, 0.85, 0.2]);
+            }
+        }
+        let b = Self::board_pos();
+        if self.cam.visible(b, 6.0) {
+            push_box(&mut verts, b + vec3(0.0, 1.5, 0.0), vec3(2.0, 3.0, 2.0), [0.5, 0.5, 0.55]);
+            push_box(&mut verts, b + vec3(0.0, 3.2, 0.0), vec3(2.4, 0.6, 0.3), [1.0, 0.85, 0.2]);
+        }
+        // Nhà tù: tường bao và hai tháp canh
+        let m = prison_center();
+        if self.cam.visible(m, PRISON_HALF * 2.5) {
+            let wall = [0.55, 0.55, 0.58];
+            push_box(&mut verts, m + vec3(0.0, 2.5, PRISON_HALF), vec3(2.0 * PRISON_HALF + 1.0, 5.0, 1.0), wall);
+            push_box(&mut verts, m + vec3(0.0, 2.5, -PRISON_HALF), vec3(2.0 * PRISON_HALF + 1.0, 5.0, 1.0), wall);
+            push_box(&mut verts, m + vec3(PRISON_HALF, 2.5, 0.0), vec3(1.0, 5.0, 2.0 * PRISON_HALF + 1.0), wall);
+            push_box(&mut verts, m + vec3(-PRISON_HALF, 2.5, 0.0), vec3(1.0, 5.0, 2.0 * PRISON_HALF + 1.0), wall);
+            for (sx, sz) in [(1.0_f32, 1.0_f32), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+                let corner = m + vec3(sx * (PRISON_HALF + 1.5), 0.0, sz * (PRISON_HALF + 1.5));
+                push_box(&mut verts, corner + vec3(0.0, 5.0, 0.0), vec3(3.0, 10.0, 3.0), [0.3, 0.3, 0.32]);
+                push_box(&mut verts, corner + vec3(0.0, 10.5, 0.0), vec3(3.8, 1.0, 3.8), [0.2, 0.2, 0.22]);
+            }
+        }
+        // Đường nhánh: mỗi nhà thường có một đoạn đường nối từ đường chính tới cửa
+        for b in &self.city.buildings {
+            if b.hp >= 1.0e5 {
+                continue;
+            }
+            let cx = (b.min.x + b.max.x) * 0.5;
+            let cz = (b.min.y + b.max.y) * 0.5;
+            let block_row = (cz / BLOCK).floor();
+            let road_edge = block_row * BLOCK + crate::config::ROAD * 0.5;
+            let len = b.min.y - road_edge;
+            if len < 0.5 || !self.cam.visible(vec3(cx, 0.0, cz), 40.0) {
+                continue;
+            }
+            push_box(&mut verts, vec3(cx, 0.12, road_edge + len * 0.5), vec3(6.0, 0.04, len), [0.25, 0.25, 0.28]);
+        }
+        // Cửa vào các nhà thường (mặt hướng ra đường)
+        for b in &self.city.buildings {
+            if b.hp >= 1.0e5 {
+                continue;
+            }
+            let cx = (b.min.x + b.max.x) * 0.5;
+            let c = vec3(cx, 0.0, b.min.y);
+            if self.cam.visible(c, 40.0) {
+                push_box(&mut verts, vec3(cx, 1.3, b.min.y - 0.1), vec3(2.0 * crate::city::DOOR_HALF, 2.6, 0.2), [0.12, 0.09, 0.07]);
+            }
+        }
+        if let Some(ev) = &self.disasters.event {
+            for (b, t) in &ev.bombs {
+                let _ = t;
+                push_box(&mut verts, vec3(b.x, 0.1, b.z), vec3(6.0, 0.1, 6.0), [0.9, 0.1, 0.1]);
+            }
+        }
+        // Thang máy: hai cột và cabin di chuyển
+        if let Some((cx, cz, top, _)) = self.lift_info() {
+            if self.cam.visible(vec3(cx, top * 0.5, cz), top) {
+                for dz in [-1.6_f32, 1.6] {
+                    push_box(&mut verts, vec3(cx, top * 0.5, cz + dz), vec3(0.3, top, 0.3), [0.5, 0.5, 0.55]);
+                }
+                push_box(&mut verts, vec3(cx, self.lift_y + 1.25, cz), vec3(2.5, 2.5, 2.5), [0.78, 0.8, 0.84]);
             }
         }
         draw_verts(verts);
 
         set_default_camera();
         self.weather.draw_overlay();
+        self.draw_chat();
         self.draw_hud();
         self.weather.draw_notice(self.font.as_ref());
         minimap::draw(&self.city, &self.vehicles, self.active, &self.traffic);
         if !self.riding {
-            let (ms, mm) = (200.0_f32, 14.0_f32);
+            let (ms, mm) = (crate::minimap::SIZE, crate::minimap::MARGIN);
             let x0 = screen_width() - ms - mm;
             let y0 = mm;
-            let sc = ms / (2.0 * crate::config::EXT);
+            let sc = ms / (2.0 * crate::minimap::HALF);
             let p = self.player.pos;
-            let px = x0 + (p.x.clamp(-crate::config::EXT, crate::config::EXT) + crate::config::EXT) * sc;
-            let py = y0 + (p.z.clamp(-crate::config::EXT, crate::config::EXT) + crate::config::EXT) * sc;
+            let px = x0 + (p.x.clamp(-crate::minimap::HALF, crate::minimap::HALF) + crate::minimap::HALF) * sc;
+            let py = y0 + (p.z.clamp(-crate::minimap::HALF, crate::minimap::HALF) + crate::minimap::HALF) * sc;
             draw_circle(px, py, 4.0, GREEN);
             draw_circle_lines(px, py, 6.0, 1.5, WHITE);
+        }
+        if let Some(t) = self.mission {
+            let (ms, mm) = (crate::minimap::SIZE, crate::minimap::MARGIN);
+            let x0 = screen_width() - ms - mm;
+            let y0 = mm;
+            let sc = ms / (2.0 * crate::minimap::HALF);
+            let px = x0 + (t.x.clamp(-crate::minimap::HALF, crate::minimap::HALF) + crate::minimap::HALF) * sc;
+            let py = y0 + (t.z.clamp(-crate::minimap::HALF, crate::minimap::HALF) + crate::minimap::HALF) * sc;
+            draw_circle(px, py, 5.0, YELLOW);
         }
         if self.inv_open && !self.riding {
             self.draw_inventory();
@@ -1164,6 +1464,9 @@ impl Game {
             }
         }
         lines.push(format!("Tiền: {} $", self.player.money));
+        if let Some(_) = self.mission {
+            lines.push("Nhiệm vụ: bay tới cột vàng và hạ cánh".to_string());
+        }
         if !self.riding && self.near_shop().is_some() {
             lines.push("Nhấn E để mua hàng".to_string());
         }
@@ -1202,6 +1505,180 @@ impl Game {
         draw_text_ex(&row, x + 16.0, y + 84.0, TextParams { font, font_size: 22, color: WHITE, ..Default::default() });
         draw_text_ex("Nhấn 1 để trang bị / cất súng", x + 16.0, y + 124.0, TextParams { font, font_size: 18, color: Color::new(0.8, 0.85, 0.9, 1.0), ..Default::default() });
         draw_text_ex(&format!("Tiền: {} $", self.player.money), x + 16.0, y + 164.0, TextParams { font, font_size: 20, color: Color::new(1.0, 0.85, 0.3, 1.0), ..Default::default() });
+    }
+
+    /// Tìm một nhà thường còn đứng để làm chỗ cháy
+    fn random_building_spot(&self) -> Vec3 {
+        let n = self.city.buildings.len();
+        for _ in 0..30 {
+            if n == 0 {
+                break;
+            }
+            let b = &self.city.buildings[(rnd(0.0, n as f32).floor() as usize).min(n - 1)];
+            if b.hp < 1.0e5 {
+                let c = vec2((b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5);
+                return vec3(c.x, b.top, c.y);
+            }
+        }
+        vec3(0.0, 0.0, 0.0)
+    }
+
+    /// Chạy thiên tai đang diễn ra và kiểm tra thiên tai mới
+    fn update_disasters(&mut self, dt: f32) {
+        if let Some(kind) = self.disasters.roll(dt) {
+            let spot = if kind == DisasterKind::Fire {
+                self.random_building_spot()
+            } else {
+                vec3(0.0, 0.0, 0.0)
+            };
+            self.disasters.start(kind, spot);
+            self.notify(&format!("Cảnh báo: {}!", kind.label()), 4.0);
+            if kind == DisasterKind::Storm {
+                self.weather.force_rain(true);
+            }
+        }
+        let Some(mut ev) = self.disasters.event.take() else {
+            return;
+        };
+        ev.left -= dt;
+        ev.tick -= dt;
+        ev.dmg_t -= dt;
+        ev.flash = (ev.flash - dt).max(0.0);
+        let p = self.player.pos;
+        let on_foot = !self.riding;
+        match ev.kind {
+            DisasterKind::Fire => {
+                if ev.tick <= 0.0 {
+                    ev.tick = 0.15;
+                    combat::burst(&mut self.particles, ev.spot, 4, 3.0);
+                }
+                if ev.dmg_t <= 0.0 {
+                    ev.dmg_t = 2.0;
+                    for (c, _) in self.city.damage(vec2(ev.spot.x, ev.spot.z)) {
+                        combat::burst(&mut self.particles, c, 40, 14.0);
+                    }
+                }
+                let d = vec2(ev.spot.x - p.x, ev.spot.z - p.z).length();
+                if on_foot && d < 10.0 {
+                    self.damage_player(6.0 * dt);
+                }
+            }
+            DisasterKind::Storm => {
+                if ev.tick <= 0.0 {
+                    ev.tick = rnd(4.0, 8.0);
+                    ev.flash = 0.25;
+                    let s = vec3(p.x + rnd(-200.0, 200.0), 0.0, p.z + rnd(-200.0, 200.0));
+                    combat::burst(&mut self.particles, s, 20, 10.0);
+                    for c in &mut self.civs {
+                        if !c.dead && vec2(c.pos.x - s.x, c.pos.z - s.z).length() < 3.0 {
+                            c.dead = true;
+                            c.dead_t = 0.0;
+                        }
+                    }
+                    if on_foot && vec2(s.x - p.x, s.z - p.z).length() < 4.0 {
+                        self.damage_player(40.0);
+                    }
+                }
+            }
+            DisasterKind::War => {
+                if ev.tick <= 0.0 {
+                    ev.tick = 15.0;
+                    let a = rnd(0.0, std::f32::consts::TAU);
+                    let r = rnd(40.0, 160.0);
+                    let target = vec3(p.x + a.cos() * r, 0.0, p.z + a.sin() * r);
+                    ev.bombs.push((target, 2.5));
+                    self.notify("Máy bay ném bom!", 2.0);
+                }
+            }
+        }
+        // Bom chiến tranh: hết thời gian cảnh báo thì nổ
+        let mut blasts: Vec<Vec3> = Vec::new();
+        for b in &mut ev.bombs {
+            b.1 -= dt;
+        }
+        ev.bombs.retain(|b| {
+            if b.1 <= 0.0 {
+                blasts.push(b.0);
+                false
+            } else {
+                true
+            }
+        });
+        let finished = ev.left <= 0.0;
+        let kind = ev.kind;
+        if finished {
+            if kind == DisasterKind::Storm {
+                self.weather.force_rain(false);
+            }
+            self.notify(&format!("Đã kết thúc: {}", kind.label()), 3.0);
+        } else {
+            self.disasters.event = Some(ev);
+        }
+        for b in blasts {
+            self.explode(b);
+        }
+    }
+
+    /// Gửi tin nhắn (chỉ hiển thị trên máy này, chưa có mạng)
+    fn send_chat(&mut self) {
+        let text = self.chat_buf.trim().to_string();
+        self.chat_open = false;
+        self.chat_buf.clear();
+        if text.is_empty() {
+            return;
+        }
+        self.chat_log.push((format!("Bạn: {text}"), 12.0));
+        while self.chat_log.len() > 8 {
+            self.chat_log.remove(0);
+        }
+    }
+
+    /// Khung chat (góc dưới trái, trên thanh máu) và các tin nhắn gần đây
+    fn draw_chat(&self) {
+        let font = self.font.as_ref();
+        if let Some(ev) = &self.disasters.event {
+            let t = ev.left.max(0.0) as u32;
+            let text = format!("{}: còn {}:{:02}", ev.kind.label(), t / 60, t % 60);
+            let d = measure_text(&text, font, 22, 1.0);
+            draw_rectangle(screen_width() / 2.0 - d.width / 2.0 - 12.0, 40.0, d.width + 24.0, 34.0, Color::new(0.0, 0.0, 0.0, 0.55));
+            draw_text_ex(&text, screen_width() / 2.0 - d.width / 2.0, 64.0, TextParams { font, font_size: 22, color: Color::new(1.0, 0.6, 0.2, 1.0), ..Default::default() });
+            if ev.flash > 0.0 {
+                draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(1.0, 1.0, 1.0, ev.flash * 2.0));
+            }
+        }
+        let x = 12.0;
+        let mut y = screen_height() - 26.0 - 74.0 - 36.0;
+        if self.chat_open {
+            draw_rectangle(x - 6.0, y - 22.0, 520.0, 30.0, Color::new(0.0, 0.0, 0.0, 0.6));
+            let cursor = if ((get_time() * 2.0) as i64) % 2 == 0 { "_" } else { "" };
+            draw_text_ex(
+                &format!("> {}{}", self.chat_buf, cursor),
+                x,
+                y,
+                TextParams {
+                    font,
+                    font_size: 18,
+                    color: WHITE,
+                    ..Default::default()
+                },
+            );
+            y -= 34.0;
+        }
+        for (text, t) in self.chat_log.iter().rev() {
+            let a = (*t / 2.0).clamp(0.0, 1.0);
+            draw_text_ex(
+                text,
+                x,
+                y,
+                TextParams {
+                    font,
+                    font_size: 17,
+                    color: Color::new(1.0, 1.0, 1.0, a),
+                    ..Default::default()
+                },
+            );
+            y -= 22.0;
+        }
     }
 
     /// Thanh máu và thể lực ở góc dưới trái (có khung, có số)

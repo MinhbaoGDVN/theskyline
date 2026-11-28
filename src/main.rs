@@ -1,5 +1,6 @@
 mod camera;
 mod civilians;
+mod disasters;
 mod police;
 mod city;
 mod combat;

@@ -18,6 +18,7 @@ pub struct Civilian {
     pub heading: f32,
     pub dead: bool,
     pub dead_t: f32,
+    pub help: bool,
     turn_t: f32,
     shirt: [f32; 3],
 }
@@ -39,6 +40,7 @@ impl Civilian {
             dead: false,
             dead_t: 0.0,
             turn_t: rnd(2.0, 6.0),
+            help: rnd(0.0, 1.0) < 0.25,
             shirt: [rnd(0.2, 0.9), rnd(0.2, 0.9), rnd(0.2, 0.9)],
         }
     }
@@ -60,6 +62,7 @@ impl Civilian {
             dead: false,
             dead_t: 0.0,
             turn_t: rnd(2.0, 6.0),
+            help: rnd(0.0, 1.0) < 0.25,
             shirt: [rnd(0.2, 0.9), rnd(0.2, 0.9), rnd(0.2, 0.9)],
         }
     }
@@ -117,5 +120,8 @@ impl Civilian {
         push_box(verts, p + vec3(0.2, 0.42, 0.0), vec3(0.24, 0.84, 0.26), [0.18, 0.18, 0.25]);
         push_box(verts, p + vec3(0.0, 1.19, 0.0), vec3(0.56, 0.70, 0.32), self.shirt);
         push_box(verts, p + vec3(0.0, 1.76, 0.0), vec3(0.40, 0.42, 0.40), skin);
+        if self.help {
+            push_box(verts, p + vec3(0.0, 2.7, 0.0), vec3(0.2, 0.6, 0.2), [1.0, 0.85, 0.1]);
+        }
     }
 }

@@ -8,6 +8,9 @@ use crate::render::light_dir;
 /// Cài đặt: có hiện thông báo thời tiết ở góc trái màn hình không (luôn hiện khi bật)
 pub static SHOW_NOTICE: AtomicBool = AtomicBool::new(true);
 
+/// Giông sét: giữ trời mưa, không đổi thời tiết
+static FORCE_RAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn show_notice() -> bool {
     SHOW_NOTICE.load(Ordering::Relaxed)
 }
@@ -92,10 +95,18 @@ impl Weather {
         k
     }
 
+    /// Bật/tắt trời mưa cố định (dùng cho giông sét)
+    pub fn force_rain(&mut self, on: bool) {
+        FORCE_RAIN.store(on, std::sync::atomic::Ordering::Relaxed);
+        if on {
+            self.kind = Kind::Rain;
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.time = (self.time + dt) % DAY_LEN;
         self.kind_t += dt;
-        if self.kind_t >= WEATHER_LEN {
+        if self.kind_t >= WEATHER_LEN && !FORCE_RAIN.load(std::sync::atomic::Ordering::Relaxed) {
             self.kind_t = 0.0;
             let next = self.pick_kind();
             if next != self.kind {

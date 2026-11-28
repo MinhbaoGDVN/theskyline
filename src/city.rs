@@ -16,6 +16,9 @@ const BUILDING_COLORS: [[f32; 3]; 7] = [
 const GLASS: [f32; 3] = [0.2, 0.3, 0.42];
 const LIT: [f32; 3] = [1.0, 0.86, 0.5];
 
+/// Nửa chiều rộng lối vào nhà (m)
+pub const DOOR_HALF: f32 = 3.0;
+
 pub struct Building {
     pub min: Vec2,
     pub max: Vec2,
@@ -177,8 +180,23 @@ impl City {
 
     pub fn hit(&self, p: Vec2, r: f32, y: f32) -> bool {
         self.buildings.iter().any(|b| {
+            // Lối vào: nhà thường có một hành lang rộng 6 m từ mặt đường vào trong, không chặn người
+            if b.hp < 1.0e5 && (p.x - (b.min.x + b.max.x) * 0.5).abs() + r < DOOR_HALF {
+                return false;
+            }
             y < b.top && p.x + r > b.min.x && p.x - r < b.max.x && p.y + r > b.min.y && p.y - r < b.max.y
         })
+    }
+
+    /// Độ cao nóc của nhà chứa điểm p (nếu có), dùng để đứng trên nóc
+    pub fn roof_at(&self, p: Vec2) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        for b in &self.buildings {
+            if p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y {
+                best = Some(best.map_or(b.top, |t| t.max(b.top)));
+            }
+        }
+        best
     }
 
     /// Gây sát thương tòa nhà gần điểm nổ. Trả về tâm và đỉnh các tòa đã sập.

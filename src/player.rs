@@ -88,8 +88,8 @@ impl Player {
             let speed = if running { RUN_SPEED } else { WALK_SPEED };
             let f = vec3(self.heading.sin(), 0.0, self.heading.cos());
             let next = self.pos + f * dir * speed * dt;
-            let next = vec3(next.x.clamp(-WORLD_LIMIT, WORLD_LIMIT), 0.0, next.z.clamp(-WORLD_LIMIT, WORLD_LIMIT));
-            if !city.hit(vec2(next.x, next.z), 0.6, 1.0) {
+            let next = vec3(next.x.clamp(-WORLD_LIMIT, WORLD_LIMIT), self.pos.y, next.z.clamp(-WORLD_LIMIT, WORLD_LIMIT));
+            if !city.hit(vec2(next.x, next.z), 0.6, self.pos.y + 1.0) {
                 self.pos = next;
             }
             self.walk_t += dt * speed * 1.6;
@@ -99,6 +99,11 @@ impl Player {
                 self.step_dist -= stride;
                 self.step_ready = true;
             }
+        }
+        // Đứng trên nóc nếu đang ở trên đó; không thì rơi về mặt đất
+        match city.roof_at(vec2(self.pos.x, self.pos.z)) {
+            Some(top) if self.pos.y >= top - 0.5 => self.pos.y = top,
+            _ => self.pos.y = 0.0,
         }
         if running {
             self.stamina -= 25.0 * dt;
