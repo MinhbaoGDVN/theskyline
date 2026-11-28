@@ -22,6 +22,10 @@ const SHADOW_MARGIN: f32 = 120.0;
 const MAG: u32 = 20;
 /// Tiền phạt khi bị bắt
 const FINE: u32 = 500;
+/// Chi phí dịch chuyển (nhấn chuột vào minimap)
+const TELEPORT_COST: u32 = 10_000_000;
+/// Viện phí khi hồi sinh
+const HOSPITAL_COST: u32 = 100;
 /// Thời gian để trả nợ phạt (giây)
 const DEBT_TIME: f32 = 900.0;
 /// Thời gian bị giam nếu không trả nợ (giây)
@@ -65,6 +69,22 @@ fn random_coin() -> Vec3 {
     } else {
         vec3(t, 0.8, k)
     }
+}
+
+/// Loại hàng trong cửa hàng
+#[derive(Clone, Copy)]
+enum ShopKind {
+    Ammo,
+    Food,
+}
+
+/// Một cửa hàng có thể mua hàng bằng phím E
+#[derive(Clone, Copy)]
+struct Shop {
+    name: &'static str,
+    pos: Vec3,
+    price: u32,
+    kind: ShopKind,
 }
 
 pub struct Game {
@@ -116,6 +136,7 @@ pub struct Game {
     debt: u32,
     debt_t: f32,
     jail_t: f32,
+    shop_open: Option<usize>,
 }
 
 impl Game {
@@ -175,6 +196,7 @@ impl Game {
             debt: 0,
             debt_t: 0.0,
             jail_t: 0.0,
+            shop_open: None,
         }
     }
 
@@ -303,7 +325,44 @@ impl Game {
     }
 
     /// Logic khi đi bộ: lên xe khi bấm E gần phương tiện
+    /// Đổi vị trí chuột trên minimap thành toạ độ thế giới (nếu chuột nằm trong minimap)
+    fn minimap_click_world(&self) -> Option<Vec3> {
+        let (ms, mm) = (200.0_f32, 14.0_f32);
+        let x0 = screen_width() - ms - mm;
+        let y0 = mm;
+        let (mx, my) = mouse_position();
+        if mx < x0 || mx > x0 + ms || my < y0 || my > y0 + ms {
+            return None;
+        }
+        let sc = ms / (2.0 * crate::config::EXT);
+        let x = (mx - x0) / sc - crate::config::EXT;
+        let z = (my - y0) / sc - crate::config::EXT;
+        Some(vec3(x, 0.0, z))
+    }
+
+    /// Dịch chuyển người chơi tới điểm đã nhấn trên minimap (tốn tiền, không vào nhà)
+    fn try_teleport(&mut self) {
+        let Some(dest) = self.minimap_click_world() else {
+            return;
+        };
+        if self.city.hit(vec2(dest.x, dest.z), 0.6, 1.0) {
+            self.notify("Không thể dịch chuyển vào trong nhà", 2.0);
+            return;
+        }
+        if self.player.money < TELEPORT_COST {
+            self.notify("Không đủ tiền dịch chuyển (10 triệu $)", 2.0);
+            return;
+        }
+        self.player.money -= TELEPORT_COST;
+        self.player.teleport(dest);
+        self.notify("Đã dịch chuyển (-10 triệu $)", 2.0);
+    }
+
     fn update_on_foot(&mut self, _dt: f32, e: &Edges) {
+        if self.shop_open.is_some() {
+            self.update_shop(e);
+            return;
+        }
         if e.enter {
             self.try_enter();
         }
@@ -318,7 +377,9 @@ impl Game {
         if e.reset && self.gun_equipped && self.ammo < MAG && self.reload_t <= 0.0 {
             self.reload_t = 1.5;
         }
-        if self.gun_equipped && e.fire {
+        if e.fire && self.minimap_click_world().is_some() {
+            self.try_teleport();
+        } else if self.gun_equipped && e.fire {
             self.player_shoot();
         }
     }
@@ -567,7 +628,108 @@ impl Game {
 
 
     /// Lên xe gần nhất trong bán kính 6 m (máy bay phải đang nằm trên đất)
+    /// Hai cửa hàng: tạp hoá ở nông thôn (ngoài thành phố) và quán phở ở chân toà cao nhất
+    fn shops(&self) -> Vec<Shop> {
+        let tallest = self
+            .city
+            .buildings
+            .iter()
+            .max_by(|a, b| a.top.partial_cmp(&b.top).unwrap_or(std::cmp::Ordering::Equal));
+        let pho_pos = match tallest {
+            Some(b) => vec3(b.max.x + 6.0, 0.0, (b.min.y + b.max.y) * 0.5),
+            None => vec3(0.0, 0.0, 0.0),
+        };
+        vec![
+            Shop {
+                name: "Tạp hoá nông thôn",
+                pos: vec3(520.0, 0.0, 300.0),
+                price: 5_000,
+                kind: ShopKind::Ammo,
+            },
+            Shop {
+                name: "Quán phở đỉnh Skyline",
+                pos: pho_pos,
+                price: 900_000,
+                kind: ShopKind::Food,
+            },
+        ]
+    }
+
+    /// Cửa hàng gần người chơi (trong 4 m), nếu có
+    fn near_shop(&self) -> Option<usize> {
+        let p = self.player.pos;
+        self.shops()
+            .iter()
+            .position(|s| vec2(s.pos.x - p.x, s.pos.z - p.z).length() < 4.0)
+    }
+
+    fn buy(&mut self, s: Shop) {
+        if self.player.money < s.price {
+            self.notify("Không đủ tiền", 2.0);
+            return;
+        }
+        match s.kind {
+            ShopKind::Ammo => {
+                if self.ammo >= MAG {
+                    self.notify("Băng đạn đã đầy", 2.0);
+                    return;
+                }
+                self.player.money -= s.price;
+                self.ammo = MAG;
+                self.reload_t = 0.0;
+                self.notify("Đã mua băng đạn đầy (-5 000 $)", 2.0);
+            }
+            ShopKind::Food => {
+                self.player.money -= s.price;
+                self.player.hp = MAX_HP;
+                self.player.stamina = MAX_STAMINA;
+                self.notify("Đã ăn phở: đầy máu và thể lực (-900 000 $)", 2.5);
+            }
+        }
+    }
+
+    /// Đang mở cửa hàng: [1] mua, [E] đóng; đi xa thì tự đóng
+    fn update_shop(&mut self, e: &Edges) {
+        let Some(i) = self.shop_open else {
+            return;
+        };
+        let shops = self.shops();
+        let s = shops[i];
+        let p = self.player.pos;
+        let far = vec2(s.pos.x - p.x, s.pos.z - p.z).length() > 6.0;
+        if e.enter || far {
+            self.shop_open = None;
+            return;
+        }
+        if e.equip {
+            self.buy(s);
+        }
+    }
+
+    fn draw_shop(&self, i: usize) {
+        let font = self.font.as_ref();
+        let s = self.shops()[i];
+        let w = 460.0;
+        let h = 170.0;
+        let x = (screen_width() - w) / 2.0;
+        let y = (screen_height() - h) / 2.0;
+        draw_rectangle(x, y, w, h, Color::new(0.0, 0.0, 0.0, 0.7));
+        draw_rectangle(x, y, w, 3.0, Color::new(0.97, 0.72, 0.16, 1.0));
+        draw_text_ex(s.name, x + 16.0, y + 36.0, TextParams { font, font_size: 24, color: WHITE, ..Default::default() });
+        let item = match s.kind {
+            ShopKind::Ammo => "[1] Mua băng đạn đầy: 5 000 $",
+            ShopKind::Food => "[1] Ăn phở: 900 000 $ (đầy máu, thể lực)",
+        };
+        draw_text_ex(item, x + 16.0, y + 84.0, TextParams { font, font_size: 20, color: WHITE, ..Default::default() });
+        draw_text_ex(&format!("Tiền của bạn: {} $", self.player.money), x + 16.0, y + 124.0, TextParams { font, font_size: 18, color: Color::new(1.0, 0.85, 0.3, 1.0), ..Default::default() });
+        draw_text_ex("[E] đóng", x + 16.0, y + 158.0, TextParams { font, font_size: 16, color: Color::new(0.8, 0.85, 0.9, 1.0), ..Default::default() });
+    }
+
     fn try_enter(&mut self) {
+        if let Some(i) = self.near_shop() {
+            self.shop_open = Some(i);
+            return;
+        }
         let p = self.player.pos;
         let mut best: Option<(usize, f32)> = None;
         for (i, v) in self.vehicles.iter().enumerate() {
@@ -675,11 +837,12 @@ impl Game {
             }
         }
         self.player.pos = vec3(spot.x, 0.0, spot.y);
+        self.player.money = self.player.money.saturating_sub(HOSPITAL_COST);
         self.player.hp = MAX_HP;
         self.player.stamina = MAX_STAMINA;
         self.player.hurt_cd = 0.0;
         self.riding = false;
-        self.notify("Bạn được đưa đến trạm xá", 3.0);
+        self.notify("Vào viện: -100 $", 3.0);
     }
 
     /// Đồng tiền: tự xuất hiện trên đường, nhặt khi đi bộ đến gần
@@ -888,6 +1051,18 @@ impl Game {
         for p in &self.particles {
             push_box(&mut verts, p.pos, Vec3::splat(0.7), p.rgb);
         }
+        // Vẽ hai cửa hàng bằng khối
+        for s in self.shops() {
+            if self.cam.visible(s.pos, 6.0) {
+                let roof = match s.kind {
+                    ShopKind::Ammo => [0.5, 0.35, 0.2],
+                    ShopKind::Food => [0.7, 0.15, 0.1],
+                };
+                push_box(&mut verts, s.pos + vec3(0.0, 1.5, 0.0), vec3(3.0, 3.0, 3.0), [0.9, 0.85, 0.7]);
+                push_box(&mut verts, s.pos + vec3(0.0, 3.1, 0.0), vec3(3.6, 0.4, 3.6), roof);
+                push_box(&mut verts, s.pos + vec3(0.0, 3.6, 1.6), vec3(3.0, 0.6, 0.2), roof);
+            }
+        }
         draw_verts(verts);
 
         set_default_camera();
@@ -908,6 +1083,9 @@ impl Game {
         }
         if self.inv_open && !self.riding {
             self.draw_inventory();
+        }
+        if let Some(i) = self.shop_open {
+            self.draw_shop(i);
         }
     }
 
@@ -986,6 +1164,9 @@ impl Game {
             }
         }
         lines.push(format!("Tiền: {} $", self.player.money));
+        if !self.riding && self.near_shop().is_some() {
+            lines.push("Nhấn E để mua hàng".to_string());
+        }
         match self.arrest {
             Arrest::Carried => lines.push("Đang bị đưa về đồn".to_string()),
             Arrest::Jailed => lines.push(format!("Đang bị giam: {:.0} s", self.jail_t)),
